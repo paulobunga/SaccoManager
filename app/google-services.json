@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "234937868208",
+    "project_id": "sacco-app-bebb1",
+    "storage_bucket": "sacco-app-bebb1.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:234937868208:android:a86761aa8106e1d4ca4075",
+        "android_client_info": {
+          "package_name": "com.swibztech.saccoapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC39xIyb6f7aLX9pI3p06D6tigwx7_9Jvk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

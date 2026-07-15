@@ -1,0 +1,6 @@
+{
+  "name": "SACCO Manager",
+  "description": "A production-ready SACCO (Savings & Credit Cooperative) Management System for community savings groups, investment clubs, and cooperatives.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
