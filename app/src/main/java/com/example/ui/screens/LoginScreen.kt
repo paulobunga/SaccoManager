@@ -22,6 +22,7 @@ import androidx.compose.ui.text.style.TextAlign
 import kotlinx.coroutines.launch
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.BuildConfig
 import com.example.data.UserRole
 
 @OptIn(ExperimentalMaterial3Api::class)

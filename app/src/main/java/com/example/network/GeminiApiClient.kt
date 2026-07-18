@@ -26,8 +26,11 @@ object GeminiApiClient {
         .addLast(KotlinJsonAdapterFactory())
         .build()
 
-    // Dynamic model resolution to comply with gemini-api skill rules
-    private const val DEFAULT_MODEL = "gemini-3.5-flash"
+    // Primary model — gemini-2.0-flash is a valid, released Gemini model.
+    // If the API returns 404 for this model (e.g. regional unavailability or key tier restrictions),
+    // the client automatically retries with FALLBACK_MODEL before entering offline mode.
+    private const val DEFAULT_MODEL = "gemini-2.0-flash"
+    private const val FALLBACK_MODEL = "gemini-1.5-flash"
 
     suspend fun generateContent(prompt: String, systemInstruction: String? = null): String = withContext(Dispatchers.IO) {
         val apiKey = BuildConfig.GEMINI_API_KEY
@@ -58,9 +61,24 @@ object GeminiApiClient {
             }
         """.trimIndent()
 
-        val url = "https://generativelanguage.googleapis.com/v1beta/models/$DEFAULT_MODEL:generateContent?key=$apiKey"
-        
-        try {
+        return@withContext callModel(DEFAULT_MODEL, requestJson, apiKey)
+            ?: run {
+                // Primary model returned 404 — fall back to gemini-1.5-flash
+                Log.w(TAG, "$DEFAULT_MODEL returned 404; retrying with $FALLBACK_MODEL")
+                callModel(FALLBACK_MODEL, requestJson, apiKey)
+                    ?: "OFFLINE_MODE"
+            }
+    }
+
+    /**
+     * Executes a single generateContent request for the given [model].
+     * Returns the extracted text on success, null if the response is 404
+     * (signals the caller to try the fallback model), or an error string for
+     * other non-successful responses and exceptions.
+     */
+    private fun callModel(model: String, requestJson: String, apiKey: String): String? {
+        val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
+        return try {
             val request = Request.Builder()
                 .url(url)
                 .post(requestJson.toRequestBody(JSON_MEDIA_TYPE))
@@ -68,18 +86,25 @@ object GeminiApiClient {
 
             client.newCall(request).execute().use { response ->
                 val bodyString = response.body?.string()
-                if (!response.isSuccessful || bodyString == null) {
-                    Log.e(TAG, "API error code ${response.code}: $bodyString")
-                    return@withContext "API_ERROR: ${response.code}"
+                when {
+                    response.code == 404 -> {
+                        Log.w(TAG, "Model $model not found (404): $bodyString")
+                        null  // caller will try fallback
+                    }
+                    !response.isSuccessful || bodyString == null -> {
+                        Log.e(TAG, "API error code ${response.code} for model $model: $bodyString")
+                        "API_ERROR: ${response.code}"
+                    }
+                    else -> {
+                        // Parse response manually to extract text safely without crashing on missing structures
+                        extractTextFromResponse(bodyString)
+                            ?: "Could not extract analysis from AI response."
+                    }
                 }
-
-                // Parse response manually to extract text safely without crashing on missing structures
-                val text = extractTextFromResponse(bodyString)
-                return@withContext text ?: "Could not extract analysis from AI response."
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Exception calling Gemini API: ${e.message}", e)
-            return@withContext "API_EXCEPTION: ${e.message}"
+            Log.e(TAG, "Exception calling Gemini API (model=$model): ${e.message}", e)
+            "API_EXCEPTION: ${e.message}"
         }
     }
 

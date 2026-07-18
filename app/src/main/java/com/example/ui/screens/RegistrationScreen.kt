@@ -28,7 +28,7 @@ import com.example.data.UserRole
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RegistrationScreen(
-    onRegisterSubmit: (SaccoUser, MemberProfile) -> Unit,
+    onRegisterSubmit: (SaccoUser, MemberProfile, String) -> Unit,
     onNavigateBack: () -> Unit
 ) {
     val scrollState = rememberScrollState()
@@ -398,8 +398,7 @@ fun RegistrationScreen(
                                 name = fullName,
                                 role = UserRole.MEMBER,
                                 status = MemberStatus.PENDING,
-                                membershipNumber = "SACCO-PEND-${System.currentTimeMillis().toString().takeLast(4)}",
-                                password = password
+                                membershipNumber = "SACCO-PEND-${System.currentTimeMillis().toString().takeLast(4)}"
                             )
                             val profile = MemberProfile(
                                 memberId = email,
@@ -423,7 +422,7 @@ fun RegistrationScreen(
                                 signatureUrl = "mock_sig_uri",
                                 referredByCode = referralCode
                             )
-                            onRegisterSubmit(user, profile)
+                            onRegisterSubmit(user, profile, password)
                         }
                     },
                     modifier = Modifier

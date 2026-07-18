@@ -1,6 +1,7 @@
 package com.example.network
 
 import android.util.Log
+import com.example.BuildConfig
 import okhttp3.CertificatePinner
 import okhttp3.ConnectionSpec
 import okhttp3.Interceptor
@@ -61,7 +62,12 @@ object SaccoNetworkClient {
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .writeTimeout(15, TimeUnit.SECONDS)
-        .connectionSpecs(listOf(modernTlsSpec, ConnectionSpec.CLEARTEXT)) // Standard secure setup with cleartext fallback for local dev servers
+        // Only allow cleartext in debug builds (for local dev servers / emulator).
+        // In release builds, the network_security_config.xml enforces TLS globally.
+        .connectionSpecs(
+            if (BuildConfig.DEBUG) listOf(modernTlsSpec, ConnectionSpec.CLEARTEXT)
+            else listOf(modernTlsSpec)
+        )
         .certificatePinner(certificatePinner)
         .addInterceptor(rateLimitInterceptor)
         .build()

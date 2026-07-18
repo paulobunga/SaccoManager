@@ -22,11 +22,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.room.Room
 import com.example.data.*
+import com.example.network.FirebaseAuthManager
 import com.example.network.GeminiApiClient
 import com.example.ui.screens.*
 import com.example.ui.theme.MyApplicationTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
 
@@ -42,7 +45,10 @@ class MainActivity : ComponentActivity() {
             applicationContext,
             SaccoDatabase::class.java,
             "sacco_management_db"
-        ).fallbackToDestructiveMigration().build()
+        )
+            .addMigrations(*ALL_MIGRATIONS)
+            .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5)
+            .build()
 
         repository = SaccoRepository(applicationContext, database)
 
@@ -69,9 +75,31 @@ fun MainContent(repository: SaccoRepository) {
     var loggedInUser by remember { mutableStateOf<SaccoUser?>(null) }
     var activeRole by remember { mutableStateOf(UserRole.MEMBER) }
     var showRegisterForm by remember { mutableStateOf(false) }
+    // True once the Firebase session check on startup has completed (prevents LoginScreen flash)
+    var sessionCheckDone by remember { mutableStateOf(false) }
 
     // Navigation States
     var currentScreenRoute by remember { mutableStateOf("DASHBOARD") }
+
+    // -------------------------------------------------------------------------
+    // Startup: restore Firebase Auth session without re-login (REQ-4)
+    // -------------------------------------------------------------------------
+    LaunchedEffect(Unit) {
+        if (FirebaseAuthManager.isLoggedIn()) {
+            val firebaseUid = FirebaseAuthManager.currentUser?.uid
+            if (firebaseUid != null) {
+                val user = withContext(Dispatchers.IO) {
+                    repository.getUserByFirebaseUid(firebaseUid)
+                }
+                if (user != null) {
+                    loggedInUser = user
+                    activeRole = user.role
+                    currentScreenRoute = if (user.role == UserRole.ADMIN || user.role == UserRole.SUPER_ADMIN) "ADMIN_PANEL" else "DASHBOARD"
+                }
+            }
+        }
+        sessionCheckDone = true
+    }
 
     // Flow Observers (Live Database updates)
     val profilesList by repository.allProfiles.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -136,29 +164,63 @@ fun MainContent(repository: SaccoRepository) {
 
     // Handlers for authentication success
     val onLoginSuccess: suspend (String, String, UserRole) -> Pair<Boolean, String> = { username, password, role ->
-        val user = repository.getUserById(username)
-        if (user != null) {
-            if (user.password == password) {
+        // Step 1: Authenticate via Firebase Auth (REQ-4)
+        val firebaseResult = FirebaseAuthManager.login(username, password)
+        if (firebaseResult.isFailure) {
+            // Firebase Auth failed — return the Firebase error message directly
+            Pair(false, firebaseResult.exceptionOrNull()?.message ?: "Authentication failed. Please try again.")
+        } else {
+            // Step 2: Firebase Auth succeeded — look up local Room record for role/profile validation
+            val firebaseUser = firebaseResult.getOrNull()
+            val user = withContext(Dispatchers.IO) { repository.getUserById(username) }
+            if (user != null) {
                 if (user.role == role) {
-                    loggedInUser = user
+                    // Step 3: Store the Firebase UID on the local record if not already set (REQ-4)
+                    if (firebaseUser != null && user.firebaseUid != firebaseUser.uid) {
+                        withContext(Dispatchers.IO) {
+                            repository.updateUser(user.copy(firebaseUid = firebaseUser.uid))
+                        }
+                        loggedInUser = user.copy(firebaseUid = firebaseUser.uid)
+                    } else {
+                        loggedInUser = user
+                    }
                     activeRole = role
                     currentScreenRoute = if (role == UserRole.ADMIN || role == UserRole.SUPER_ADMIN) "ADMIN_PANEL" else "DASHBOARD"
                     repository.logAudit(user.name, role.name, "LOGIN_SUCCESS", "Successfully signed into SACCO Manager.")
                     Pair(true, "Login Successful")
                 } else {
+                    // Firebase auth passed but the selected role doesn't match the registered role
+                    FirebaseAuthManager.logout()
                     Pair(false, "Role mismatch: User is registered as a ${user.role.name}.")
                 }
             } else {
-                Pair(false, "Incorrect PIN / Password.")
+                // Firebase account exists but no matching local Room record
+                // This can happen after a DB wipe; still allow login and restore from Firebase UID
+                val userByUid = if (firebaseUser != null) {
+                    withContext(Dispatchers.IO) { repository.getUserByFirebaseUid(firebaseUser.uid) }
+                } else null
+                if (userByUid != null) {
+                    if (userByUid.role == role) {
+                        loggedInUser = userByUid
+                        activeRole = role
+                        currentScreenRoute = if (role == UserRole.ADMIN || role == UserRole.SUPER_ADMIN) "ADMIN_PANEL" else "DASHBOARD"
+                        repository.logAudit(userByUid.name, role.name, "LOGIN_SUCCESS", "Session restored via Firebase UID.")
+                        Pair(true, "Login Successful")
+                    } else {
+                        FirebaseAuthManager.logout()
+                        Pair(false, "Role mismatch: User is registered as a ${userByUid.role.name}.")
+                    }
+                } else {
+                    FirebaseAuthManager.logout()
+                    Pair(false, "User account not found locally. Please contact your SACCO administrator.")
+                }
             }
-        } else {
-            Pair(false, "User account not found. Please register / apply for membership.")
         }
     }
 
-    val onRegisterSubmit: (SaccoUser, MemberProfile) -> Unit = { user, profile ->
+    val onRegisterSubmit: (SaccoUser, MemberProfile, String) -> Unit = { user, profile, password ->
         scope.launch {
-            repository.registerUser(user, profile)
+            repository.registerUser(user, profile, password)
             showRegisterForm = false
         }
     }
@@ -175,7 +237,15 @@ fun MainContent(repository: SaccoRepository) {
     }
 
     if (loggedInUser == null) {
-        if (showRegisterForm) {
+        if (!sessionCheckDone) {
+            // Still checking Firebase session — show a loading indicator to avoid LoginScreen flash
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+        } else if (showRegisterForm) {
             RegistrationScreen(
                 onRegisterSubmit = onRegisterSubmit,
                 onNavigateBack = { showRegisterForm = false }
@@ -184,8 +254,8 @@ fun MainContent(repository: SaccoRepository) {
             LoginScreen(
                 onLoginSuccess = onLoginSuccess,
                 onNavigateToRegister = { showRegisterForm = true },
-                onResetPassword = { username, newPin ->
-                    repository.resetPassword(username, newPin)
+                onResetPassword = { username, _ ->
+                    repository.resetPassword(username)
                 }
             )
         }
@@ -383,8 +453,8 @@ fun MainContent(repository: SaccoRepository) {
                                 repository.updateProfileAndName(loggedInUser!!.id, newName, updatedProfile, loggedInUser!!.name, activeRole.name)
                             }
                         },
-                        onResetPassword = { mId, newPin ->
-                            repository.resetPassword(mId, newPin)
+                        onResetPassword = { mId, _ ->
+                            repository.resetPassword(mId)
                         },
                         isOnline = isOnline,
                         isSyncing = isSyncing

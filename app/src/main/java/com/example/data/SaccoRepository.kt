@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.room.Room
 import androidx.room.withTransaction
+import com.example.network.FirebaseAuthManager
 import com.example.network.GeminiApiClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -115,6 +116,16 @@ class SaccoRepository(private val context: Context, private val db: SaccoDatabas
         userDao.getUserById(id)
     }
 
+    /** Look up a [SaccoUser] by their Firebase UID (used for session restoration on startup). */
+    suspend fun getUserByFirebaseUid(firebaseUid: String): SaccoUser? = withContext(Dispatchers.IO) {
+        userDao.getUserByFirebaseUid(firebaseUid)
+    }
+
+    /** Upsert a [SaccoUser] record (uses Room REPLACE strategy). */
+    suspend fun updateUser(user: SaccoUser) = withContext(Dispatchers.IO) {
+        userDao.insertUser(user)
+    }
+
     suspend fun getProfileById(memberId: String): MemberProfile? = withContext(Dispatchers.IO) {
         profileDao.getProfileById(memberId)
     }
@@ -131,20 +142,25 @@ class SaccoRepository(private val context: Context, private val db: SaccoDatabas
         logAudit(operatorName, operatorRole, "UPDATE_PROFILE", "Updated profile and name for member: $newName")
     }
 
-    suspend fun resetPassword(memberId: String, newPin: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+    suspend fun resetPassword(memberId: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {
         val user = userDao.getUserById(memberId)
         if (user != null) {
-            val updatedUser = user.copy(password = newPin)
-            userDao.insertUser(updatedUser)
-            syncEngine.enqueue("USER_REGISTER", updatedUser, SaccoUser::class.java)
-            logAudit(user.name, user.role.name, "PASSWORD_RESET", "Password was reset for user ${user.id}")
-            sendNotification(user.id, "Security Alert", "Your password has been successfully reset. If you didn't trigger this, please contact support immediately.", "ALERT")
-            return@withContext Pair(true, "Password has been successfully updated.")
+            // Delegate password reset entirely to Firebase Auth (REQ-4, REQ-5).
+            // No password is stored locally — Firebase Auth owns all credentials.
+            val resetResult = FirebaseAuthManager.sendPasswordReset(user.email)
+            return@withContext if (resetResult.isSuccess) {
+                logAudit(user.name, user.role.name, "PASSWORD_RESET", "Password reset email sent for user ${user.id}")
+                sendNotification(user.id, "Security Alert", "A password reset link has been sent to your email. If you didn't request this, please contact support immediately.", "ALERT")
+                Pair(true, "A password reset link has been sent to your email.")
+            } else {
+                val errorMsg = resetResult.exceptionOrNull()?.message ?: "Failed to send reset email."
+                Pair(false, errorMsg)
+            }
         }
         return@withContext Pair(false, "User not found.")
     }
 
-    suspend fun registerUser(user: SaccoUser, profile: MemberProfile) = withContext(Dispatchers.IO) {
+    suspend fun registerUser(user: SaccoUser, profile: MemberProfile, password: String = "") = withContext(Dispatchers.IO) {
         db.withTransaction {
             userDao.insertUser(user)
             profileDao.insertProfile(profile)
@@ -188,10 +204,33 @@ class SaccoRepository(private val context: Context, private val db: SaccoDatabas
                 }
             }
 
-            // Sync to high-scale Cloud Spanner backend via Sync Engine
+            // Initial sync enqueue with empty firebaseUid — will be updated below once Firebase Auth responds
             syncEngine.enqueue("USER_REGISTER", user, SaccoUser::class.java)
             syncEngine.enqueue("MEMBER_PROFILE", profile, MemberProfile::class.java)
             syncEngine.enqueue("SAVINGS_PLAN", defaultPlan, SavingsPlan::class.java)
+        }
+
+        // REQ-4, REQ-5: Register the user in Firebase Auth so credentials are never stored locally.
+        // This runs outside the Room transaction because Firebase Auth is a network call.
+        // If Firebase Auth fails we still keep the local Room record — the user is registered
+        // offline-first and their firebaseUid will be populated on next successful login.
+        if (password.isNotEmpty()) {
+            val authResult = com.example.network.FirebaseAuthManager.register(user.email, password)
+            authResult.fold(
+                onSuccess = { firebaseUser ->
+                    // Store the Firebase UID in Room so the local record is linked to Firebase Auth.
+                    val userWithUid = user.copy(firebaseUid = firebaseUser.uid)
+                    userDao.insertUser(userWithUid)
+                    // Re-enqueue so the Firestore document also gets the firebaseUid field.
+                    syncEngine.enqueue("USER_REGISTER", userWithUid, SaccoUser::class.java)
+                    Log.d("SaccoRepository", "Firebase Auth account created for ${user.email}, uid=${firebaseUser.uid}")
+                },
+                onFailure = { error ->
+                    // Degraded mode: the user is registered locally but has no Firebase Auth account yet.
+                    // They can still use the app offline; Firebase Auth registration will be retried on login.
+                    Log.e("SaccoRepository", "Firebase Auth registration failed for ${user.email}: ${error.message}")
+                }
+            )
         }
     }
 

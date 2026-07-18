@@ -40,6 +40,9 @@ interface SaccoUserDao {
     @Query("SELECT * FROM sacco_users WHERE id = :id")
     suspend fun getUserById(id: String): SaccoUser?
 
+    @Query("SELECT * FROM sacco_users WHERE firebaseUid = :firebaseUid LIMIT 1")
+    suspend fun getUserByFirebaseUid(firebaseUid: String): SaccoUser?
+
     @Query("SELECT * FROM sacco_users")
     fun getAllUsersFlow(): Flow<List<SaccoUser>>
 
@@ -266,7 +269,7 @@ interface DividendAuditRecordDao {
         DeclaredDividend::class,
         DividendAuditRecord::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 @TypeConverters(SaccoConverters::class)

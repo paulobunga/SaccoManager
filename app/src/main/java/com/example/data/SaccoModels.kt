@@ -51,7 +51,9 @@ data class SaccoUser(
     val role: UserRole,
     val status: MemberStatus = MemberStatus.ACTIVE,
     val membershipNumber: String = "",
-    val password: String = "123"
+    // Firebase Auth owns all credentials — password is no longer stored locally.
+    // REQ-5: firebaseUid links this local record to the Firebase Auth account.
+    val firebaseUid: String = ""
 ) : java.io.Serializable
 
 @Entity(tableName = "member_profiles")
@@ -173,7 +175,7 @@ data class AuditLog(
     val action: String,
     val details: String,
     val timestamp: String,
-    val ipAddress: String = "192.168.1.100"
+    val ipAddress: String = "" // REQ-15: replaced hardcoded placeholder IP with empty string
 ) : java.io.Serializable
 
 @Entity(tableName = "sacco_notifications", indices = [Index(value = ["recipientId"])])
