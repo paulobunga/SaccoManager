@@ -4,7 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.room.Room
 import androidx.room.withTransaction
-import com.example.network.FirebaseAuthManager
+import com.example.network.SupabaseAuthManager
 import com.example.network.GeminiApiClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -145,9 +145,9 @@ class SaccoRepository(private val context: Context, private val db: SaccoDatabas
     suspend fun resetPassword(memberId: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {
         val user = userDao.getUserById(memberId)
         if (user != null) {
-            // Delegate password reset entirely to Firebase Auth (REQ-4, REQ-5).
-            // No password is stored locally — Firebase Auth owns all credentials.
-            val resetResult = FirebaseAuthManager.sendPasswordReset(user.email)
+            // Delegate password reset entirely to Supabase Auth (REQ-4, REQ-5).
+            // No password is stored locally — Supabase Auth owns all credentials.
+            val resetResult = SupabaseAuthManager.sendPasswordReset(user.email)
             return@withContext if (resetResult.isSuccess) {
                 logAudit(user.name, user.role.name, "PASSWORD_RESET", "Password reset email sent for user ${user.id}")
                 sendNotification(user.id, "Security Alert", "A password reset link has been sent to your email. If you didn't request this, please contact support immediately.", "ALERT")
@@ -210,25 +210,25 @@ class SaccoRepository(private val context: Context, private val db: SaccoDatabas
             syncEngine.enqueue("SAVINGS_PLAN", defaultPlan, SavingsPlan::class.java)
         }
 
-        // REQ-4, REQ-5: Register the user in Firebase Auth so credentials are never stored locally.
-        // This runs outside the Room transaction because Firebase Auth is a network call.
-        // If Firebase Auth fails we still keep the local Room record — the user is registered
-        // offline-first and their firebaseUid will be populated on next successful login.
+        // REQ-4, REQ-5: Register the user in Supabase Auth so credentials are never stored locally.
+        // This runs outside the Room transaction because Supabase Auth is a network call.
+        // If Supabase Auth fails we still keep the local Room record — the user is registered
+        // offline-first and their firebaseUid (auth UUID) will be populated on next successful login.
         if (password.isNotEmpty()) {
-            val authResult = com.example.network.FirebaseAuthManager.register(user.email, password)
+            val authResult = SupabaseAuthManager.register(user.email, password)
             authResult.fold(
-                onSuccess = { firebaseUser ->
-                    // Store the Firebase UID in Room so the local record is linked to Firebase Auth.
-                    val userWithUid = user.copy(firebaseUid = firebaseUser.uid)
+                onSuccess = { supabaseUser ->
+                    // Store the Supabase UID in Room so the local record is linked to Supabase Auth.
+                    val userWithUid = user.copy(firebaseUid = supabaseUser.uid)
                     userDao.insertUser(userWithUid)
-                    // Re-enqueue so the Firestore document also gets the firebaseUid field.
+                    // Re-enqueue so the Supabase document also gets the firebaseUid field.
                     syncEngine.enqueue("USER_REGISTER", userWithUid, SaccoUser::class.java)
-                    Log.d("SaccoRepository", "Firebase Auth account created for ${user.email}, uid=${firebaseUser.uid}")
+                    Log.d("SaccoRepository", "Supabase Auth account created for ${user.email}, uid=${supabaseUser.uid}")
                 },
                 onFailure = { error ->
-                    // Degraded mode: the user is registered locally but has no Firebase Auth account yet.
-                    // They can still use the app offline; Firebase Auth registration will be retried on login.
-                    Log.e("SaccoRepository", "Firebase Auth registration failed for ${user.email}: ${error.message}")
+                    // Degraded mode: the user is registered locally but has no Supabase Auth account yet.
+                    // They can still use the app offline; Supabase Auth registration will be retried on login.
+                    Log.e("SaccoRepository", "Supabase Auth registration failed for ${user.email}: ${error.message}")
                 }
             )
         }
@@ -389,7 +389,7 @@ class SaccoRepository(private val context: Context, private val db: SaccoDatabas
 
     suspend fun deleteExpense(id: Int, operatorName: String) = withContext(Dispatchers.IO) {
         expenseDao.deleteExpense(id)
-        syncEngine.deleteFromFirebase("sacco_expenses", "expense_$id")
+        syncEngine.deleteFromSupabase("sacco_expenses", "id", "expense_$id")
         logAudit(operatorName, "ADMIN", "DELETE_EXPENSE", "Deleted expense record ID: $id")
     }
 

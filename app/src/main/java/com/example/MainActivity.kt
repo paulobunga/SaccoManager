@@ -22,7 +22,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.room.Room
 import com.example.data.*
-import com.example.network.FirebaseAuthManager
+import com.example.network.SupabaseAuthManager
 import com.example.network.GeminiApiClient
 import com.example.ui.screens.*
 import com.example.ui.theme.MyApplicationTheme
@@ -39,6 +39,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // Initialize Supabase Auth Manager
+        SupabaseAuthManager.initialize(applicationContext)
 
         // 1. Initialize Room Database and Repository
         database = Room.databaseBuilder(
@@ -82,14 +85,14 @@ fun MainContent(repository: SaccoRepository) {
     var currentScreenRoute by remember { mutableStateOf("DASHBOARD") }
 
     // -------------------------------------------------------------------------
-    // Startup: restore Firebase Auth session without re-login (REQ-4)
+    // Startup: restore Supabase Auth session without re-login (REQ-4)
     // -------------------------------------------------------------------------
     LaunchedEffect(Unit) {
-        if (FirebaseAuthManager.isLoggedIn()) {
-            val firebaseUid = FirebaseAuthManager.currentUser?.uid
-            if (firebaseUid != null) {
+        if (SupabaseAuthManager.isLoggedIn()) {
+            val supabaseUid = SupabaseAuthManager.currentUser?.uid
+            if (supabaseUid != null) {
                 val user = withContext(Dispatchers.IO) {
-                    repository.getUserByFirebaseUid(firebaseUid)
+                    repository.getUserByFirebaseUid(supabaseUid)
                 }
                 if (user != null) {
                     loggedInUser = user
@@ -164,23 +167,23 @@ fun MainContent(repository: SaccoRepository) {
 
     // Handlers for authentication success
     val onLoginSuccess: suspend (String, String, UserRole) -> Pair<Boolean, String> = { username, password, role ->
-        // Step 1: Authenticate via Firebase Auth (REQ-4)
-        val firebaseResult = FirebaseAuthManager.login(username, password)
-        if (firebaseResult.isFailure) {
-            // Firebase Auth failed — return the Firebase error message directly
-            Pair(false, firebaseResult.exceptionOrNull()?.message ?: "Authentication failed. Please try again.")
+        // Step 1: Authenticate via Supabase Auth (REQ-4)
+        val supabaseResult = SupabaseAuthManager.login(username, password)
+        if (supabaseResult.isFailure) {
+            // Supabase Auth failed — return the error message directly
+            Pair(false, supabaseResult.exceptionOrNull()?.message ?: "Authentication failed. Please try again.")
         } else {
-            // Step 2: Firebase Auth succeeded — look up local Room record for role/profile validation
-            val firebaseUser = firebaseResult.getOrNull()
+            // Step 2: Supabase Auth succeeded — look up local Room record for role/profile validation
+            val supabaseUser = supabaseResult.getOrNull()
             val user = withContext(Dispatchers.IO) { repository.getUserById(username) }
             if (user != null) {
                 if (user.role == role) {
-                    // Step 3: Store the Firebase UID on the local record if not already set (REQ-4)
-                    if (firebaseUser != null && user.firebaseUid != firebaseUser.uid) {
+                    // Step 3: Store the Supabase UID on the local record if not already set (REQ-4)
+                    if (supabaseUser != null && user.firebaseUid != supabaseUser.uid) {
                         withContext(Dispatchers.IO) {
-                            repository.updateUser(user.copy(firebaseUid = firebaseUser.uid))
+                            repository.updateUser(user.copy(firebaseUid = supabaseUser.uid))
                         }
-                        loggedInUser = user.copy(firebaseUid = firebaseUser.uid)
+                        loggedInUser = user.copy(firebaseUid = supabaseUser.uid)
                     } else {
                         loggedInUser = user
                     }
@@ -189,29 +192,29 @@ fun MainContent(repository: SaccoRepository) {
                     repository.logAudit(user.name, role.name, "LOGIN_SUCCESS", "Successfully signed into SACCO Manager.")
                     Pair(true, "Login Successful")
                 } else {
-                    // Firebase auth passed but the selected role doesn't match the registered role
-                    FirebaseAuthManager.logout()
+                    // Supabase auth passed but the selected role doesn't match the registered role
+                    SupabaseAuthManager.logout()
                     Pair(false, "Role mismatch: User is registered as a ${user.role.name}.")
                 }
             } else {
-                // Firebase account exists but no matching local Room record
-                // This can happen after a DB wipe; still allow login and restore from Firebase UID
-                val userByUid = if (firebaseUser != null) {
-                    withContext(Dispatchers.IO) { repository.getUserByFirebaseUid(firebaseUser.uid) }
+                // Supabase account exists but no matching local Room record
+                // This can happen after a DB wipe; still allow login and restore from Supabase UID
+                val userByUid = if (supabaseUser != null) {
+                    withContext(Dispatchers.IO) { repository.getUserByFirebaseUid(supabaseUser.uid) }
                 } else null
                 if (userByUid != null) {
                     if (userByUid.role == role) {
                         loggedInUser = userByUid
                         activeRole = role
                         currentScreenRoute = if (role == UserRole.ADMIN || role == UserRole.SUPER_ADMIN) "ADMIN_PANEL" else "DASHBOARD"
-                        repository.logAudit(userByUid.name, role.name, "LOGIN_SUCCESS", "Session restored via Firebase UID.")
+                        repository.logAudit(userByUid.name, role.name, "LOGIN_SUCCESS", "Session restored via Supabase UID.")
                         Pair(true, "Login Successful")
                     } else {
-                        FirebaseAuthManager.logout()
+                        SupabaseAuthManager.logout()
                         Pair(false, "Role mismatch: User is registered as a ${userByUid.role.name}.")
                     }
                 } else {
-                    FirebaseAuthManager.logout()
+                    SupabaseAuthManager.logout()
                     Pair(false, "User account not found locally. Please contact your SACCO administrator.")
                 }
             }
@@ -230,6 +233,7 @@ fun MainContent(repository: SaccoRepository) {
             loggedInUser?.let {
                 repository.logAudit(it.name, activeRole.name, "LOGOUT", "Signed out of session.")
             }
+            SupabaseAuthManager.logout()
             loggedInUser = null
             showRegisterForm = false
             currentScreenRoute = "DASHBOARD"
