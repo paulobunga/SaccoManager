@@ -49,7 +49,7 @@ fun ReportsScreen(
 
     val isUserAdmin = activeRole == UserRole.ADMIN || activeRole == UserRole.SUPER_ADMIN
     val reportTypes = if (isUserAdmin) {
-        listOf("Monthly Savings", "Outstanding Loans", "Sacco Defaulters", "Cash Flow", "Firebase Database Sync")
+        listOf("Monthly Savings", "Outstanding Loans", "Sacco Defaulters", "Cash Flow", "Supabase Database Sync")
     } else {
         listOf("Monthly Savings", "Outstanding Loans")
     }
@@ -572,12 +572,12 @@ fun ReportsScreen(
                 }
             }
 
-            "Firebase Database Sync" -> {
+            "Supabase Database Sync" -> {
                 if (syncEngine != null) {
-                    val firestoreState by syncEngine.firestoreStatus.collectAsState(initial = "Uninitialized")
-                    val rtdbState by syncEngine.rtdbStatus.collectAsState(initial = "Uninitialized")
-                    val syncCount by syncEngine.firebaseSyncCount.collectAsState(initial = 0)
-                    val logs by syncEngine.firebaseLogs.collectAsState(initial = emptyList())
+                    val supabaseRestState by syncEngine.supabaseRestStatus.collectAsState(initial = "Uninitialized")
+                    val supabaseAuthState by syncEngine.supabaseAuthStatus.collectAsState(initial = "Uninitialized")
+                    val syncCount by syncEngine.supabaseSyncCount.collectAsState(initial = 0)
+                    val logs by syncEngine.supabaseLogs.collectAsState(initial = emptyList())
                     val isSyncing by syncEngine.isSyncing.collectAsState(initial = false)
 
                     Column(
@@ -603,7 +603,7 @@ fun ReportsScreen(
                                         modifier = Modifier.size(24.dp)
                                     )
                                     Text(
-                                        "Firebase Databases Status Desk",
+                                        "Supabase Databases Status Desk",
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.primary
@@ -612,41 +612,41 @@ fun ReportsScreen(
                                 
                                 HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
 
-                                // Status 1: Cloud Firestore
+                                // Status 1: Supabase REST API
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Column {
-                                        Text("Cloud Firestore Database", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                        Text(firestoreState, fontSize = 11.sp, color = if (firestoreState.startsWith("Connected") || firestoreState.startsWith("Local")) Color(0xFF10B981) else Color.Red)
+                                        Text("Supabase REST API Database", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                        Text(supabaseRestState, fontSize = 11.sp, color = if (supabaseRestState.startsWith("Connected") || supabaseRestState.startsWith("Local")) Color(0xFF10B981) else Color.Red)
                                     }
                                     Box(
                                         modifier = Modifier
                                             .size(10.dp)
                                             .background(
-                                                color = if (firestoreState.startsWith("Connected") || firestoreState.startsWith("Local")) Color(0xFF10B981) else Color.Red,
+                                                color = if (supabaseRestState.startsWith("Connected") || supabaseRestState.startsWith("Local")) Color(0xFF10B981) else Color.Red,
                                                 shape = RoundedCornerShape(5.dp)
                                             )
                                     )
                                 }
 
-                                // Status 2: Realtime Database
+                                // Status 2: Supabase Auth
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Column {
-                                        Text("Firebase Realtime Database", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                        Text(rtdbState, fontSize = 11.sp, color = if (rtdbState.startsWith("Connected") || rtdbState.startsWith("Local")) Color(0xFF10B981) else Color.Red)
+                                        Text("Supabase Auth Gateway", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                        Text(supabaseAuthState, fontSize = 11.sp, color = if (supabaseAuthState.startsWith("Connected") || supabaseAuthState.startsWith("Local")) Color(0xFF10B981) else Color.Red)
                                     }
                                     Box(
                                         modifier = Modifier
                                             .size(10.dp)
                                             .background(
-                                                color = if (rtdbState.startsWith("Connected") || rtdbState.startsWith("Local")) Color(0xFF10B981) else Color.Red,
+                                                color = if (supabaseAuthState.startsWith("Connected") || supabaseAuthState.startsWith("Local")) Color(0xFF10B981) else Color.Red,
                                                 shape = RoundedCornerShape(5.dp)
                                             )
                                     )
@@ -657,7 +657,7 @@ fun ReportsScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("Active Synced Documents Ledger", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                    Text("Active Synced PostgreSQL Rows Ledger", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                                     Text("$syncCount entries", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                                 }
                             }
@@ -675,15 +675,15 @@ fun ReportsScreen(
                             if (isSyncing) {
                                 CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("Syncing SACCO Ledger to Firebase...")
+                                Text("Syncing SACCO Ledger to Supabase...")
                             } else {
                                 Icon(Icons.Default.CloudSync, contentDescription = null)
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("Sync Complete Database Sweep to Firebase")
+                                Text("Sync Complete Database Sweep to Supabase")
                             }
                         }
 
-                        // Live Firebase Log terminal Console
+                        // Live Supabase Log terminal Console
                         Card(
                             modifier = Modifier.fillMaxWidth(),
                             colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E), contentColor = Color(0xFF33FF33)),
@@ -695,7 +695,7 @@ fun ReportsScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("firebase-sync-monitor.sh", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color.White)
+                                    Text("supabase-sync-monitor.sh", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color.White)
                                     Text("LIVE LOGS", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
                                 }
                                 
@@ -728,26 +728,26 @@ fun ReportsScreen(
                             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Icon(Icons.Default.AccountTree, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
-                                    Text("Firebase JSON & Document Tree Explorer", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                    Text("Supabase JSON & Table Tree Explorer", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                                 }
-                                Text("Real-time visual schema snapshot mapped in Firebase Cloud consoles:", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                                Text("Real-time visual schema snapshot mapped in Supabase Database Table consoles:", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
 
                                 HorizontalDivider(thickness = 1.dp, modifier = Modifier.padding(vertical = 4.dp))
 
-                                // Folder: Firestore Cloud Collections
-                                Text("📁 firestore-root/ (Cloud Firestore)", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                                // Folder: PostgreSQL Tables
+                                Text("📁 postgres-root/ (Supabase PostgreSQL Tables)", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
                                 Column(modifier = Modifier.padding(start = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text("📂 savings_payments/   (${allPayments.size} documents)", fontSize = 11.sp, color = MaterialTheme.colorScheme.secondary)
-                                    Text("📂 loan_applications/   (${allLoans.size} documents)", fontSize = 11.sp, color = MaterialTheme.colorScheme.secondary)
-                                    Text("📂 users_registration/   (${profilesList.size} documents)", fontSize = 11.sp, color = MaterialTheme.colorScheme.secondary)
+                                    Text("📂 savings_payments/   (${allPayments.size} rows)", fontSize = 11.sp, color = MaterialTheme.colorScheme.secondary)
+                                    Text("📂 loan_applications/   (${allLoans.size} rows)", fontSize = 11.sp, color = MaterialTheme.colorScheme.secondary)
+                                    Text("📂 users_registration/   (${profilesList.size} rows)", fontSize = 11.sp, color = MaterialTheme.colorScheme.secondary)
                                 }
 
                                 Spacer(modifier = Modifier.height(8.dp))
 
-                                // Folder: RTDB JSON Keys
-                                Text("📁 realtime-db-root/ (Realtime Database JSON Tree)", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.secondary)
+                                // Folder: Supabase Realtime Channels
+                                Text("📁 supabase-realtime-root/ (Supabase Realtime Channel Tree)", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.secondary)
                                 Column(modifier = Modifier.padding(start = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text("▼ 🗃️ sacco_realtime_sync", fontSize = 11.sp, color = Color.DarkGray)
+                                    Text("▼ 🗃️ sacco_supabase_sync", fontSize = 11.sp, color = Color.DarkGray)
                                     Text("    ▶ 🗂️ savings_payments: { ... }", fontSize = 11.sp, color = Color.DarkGray)
                                     Text("    ▶ 🗂️ loan_repayments: { ... }", fontSize = 11.sp, color = Color.DarkGray)
                                     Text("    ▶ 🗂️ loan_applications: { ... }", fontSize = 11.sp, color = Color.DarkGray)

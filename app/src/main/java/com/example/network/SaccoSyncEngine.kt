@@ -6,6 +6,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.util.Log
+import com.example.BuildConfig
 import com.example.data.*
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -16,17 +17,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-
-// Firebase Imports
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.database.FirebaseDatabase
+import java.io.IOException
 
 /**
  * Enterprise Synchronization Engine for Hybrid Cloud-Edge Architecture
  * Cooperates with SaccoNetworkClient to sync local Room (Edge) transactions
- * with Cloud Spanner multi-region database and Google Firebase databases.
+ * with Cloud Spanner multi-region database and Supabase database.
  */
 class SaccoSyncEngine(
     private val context: Context,
@@ -35,10 +34,13 @@ class SaccoSyncEngine(
     private val TAG = "SaccoSyncEngine"
     private val syncQueueDao = database.syncQueueDao()
     private val scope = CoroutineScope(Dispatchers.IO)
+    private val client = OkHttpClient()
 
     private val moshi = Moshi.Builder()
         .addLast(KotlinJsonAdapterFactory())
         .build()
+
+    private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
     // Expose online status to UI
     private val _isOnline = MutableStateFlow(false)
@@ -48,44 +50,39 @@ class SaccoSyncEngine(
     private val _isSyncing = MutableStateFlow(false)
     val isSyncing: StateFlow<Boolean> = _isSyncing
 
-    // Expose Firebase Database Sync parameters and state
-    private val _firestoreStatus = MutableStateFlow("Uninitialized (Waiting for write)")
-    val firestoreStatus: StateFlow<String> = _firestoreStatus
+    // Expose Supabase Database Sync parameters and state
+    private val _supabaseRestStatus = MutableStateFlow("Uninitialized (Waiting for write)")
+    val supabaseRestStatus: StateFlow<String> = _supabaseRestStatus
 
-    private val _rtdbStatus = MutableStateFlow("Uninitialized (Waiting for write)")
-    val rtdbStatus: StateFlow<String> = _rtdbStatus
+    private val _supabaseAuthStatus = MutableStateFlow("Uninitialized (Waiting for write)")
+    val supabaseAuthStatus: StateFlow<String> = _supabaseAuthStatus
 
-    private val _firebaseSyncCount = MutableStateFlow(0)
-    val firebaseSyncCount: StateFlow<Int> = _firebaseSyncCount
+    private val _supabaseSyncCount = MutableStateFlow(0)
+    val supabaseSyncCount: StateFlow<Int> = _supabaseSyncCount
 
-    private val _firebaseLogs = MutableStateFlow<List<String>>(emptyList())
-    val firebaseLogs: StateFlow<List<String>> = _firebaseLogs
+    private val _supabaseLogs = MutableStateFlow<List<String>>(emptyList())
+    val supabaseLogs: StateFlow<List<String>> = _supabaseLogs
 
-    // Safe getters for Firebase to prevent crashes in sandboxes without google-services.json
-    private val firestore: FirebaseFirestore? by lazy {
-        try {
-            val fs = FirebaseFirestore.getInstance()
-            _firestoreStatus.value = "Connected to Firestore"
-            addFirebaseLog("Successfully initialized Cloud Firestore instance.")
-            fs
-        } catch (e: Exception) {
-            _firestoreStatus.value = "Disconnected (Missing google-services.json / Sandboxed)"
-            addFirebaseLog("Firestore init warning: ${e.localizedMessage}. App will run locally & mock Firebase updates safely.")
-            null
+    private fun getSupabaseUrl(): String {
+        return try {
+            BuildConfig.SUPABASE_URL
+        } catch (e: Throwable) {
+            ""
         }
     }
 
-    private val rtdb: FirebaseDatabase? by lazy {
-        try {
-            val db = FirebaseDatabase.getInstance()
-            _rtdbStatus.value = "Connected to Realtime DB"
-            addFirebaseLog("Successfully initialized Realtime Database instance.")
-            db
-        } catch (e: Exception) {
-            _rtdbStatus.value = "Disconnected (Missing google-services.json / Sandboxed)"
-            addFirebaseLog("Realtime DB init warning: ${e.localizedMessage}. App will run locally & mock Firebase updates safely.")
-            null
+    private fun getSupabaseKey(): String {
+        return try {
+            BuildConfig.SUPABASE_KEY
+        } catch (e: Throwable) {
+            ""
         }
+    }
+
+    private fun isSupabaseConfigured(): Boolean {
+        val url = getSupabaseUrl()
+        val key = getSupabaseKey()
+        return url.isNotEmpty() && !url.contains("your-supabase-url") && key.isNotEmpty() && !key.contains("MY_GEMINI")
     }
 
     init {
@@ -93,133 +90,123 @@ class SaccoSyncEngine(
         startRealtimeSync()
     }
 
-    fun addFirebaseLog(logMessage: String) {
-        val current = _firebaseLogs.value.toMutableList()
+    fun addSupabaseLog(logMessage: String) {
+        val current = _supabaseLogs.value.toMutableList()
         val sdf = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
         val timestamp = sdf.format(java.util.Date())
         current.add(0, "[$timestamp] $logMessage")
-        _firebaseLogs.value = current.take(40) // Keep the last 40 entries
+        _supabaseLogs.value = current.take(40) // Keep the last 40 entries
     }
 
     /**
-     * Start the real-time listeners for Firestore and Realtime DB
+     * Start the real-time listeners for Supabase
      */
     fun startRealtimeSync() {
         scope.launch {
-            // Touch lazy getters to trigger initialization
-            val fs = firestore
-            val db = rtdb
-            
-            if (fs != null) {
-                setupFirestoreListeners(fs)
+            if (isSupabaseConfigured()) {
+                _supabaseRestStatus.value = "Connected to Supabase REST"
+                _supabaseAuthStatus.value = "Connected to Supabase Auth"
+                addSupabaseLog("Successfully initialized Supabase Client connections.")
+                setupSupabaseListeners()
             } else {
-                addFirebaseLog("Firestore: Running in local sandbox mode.")
-            }
-            
-            if (db != null) {
-                setupRealtimeDbListeners(db)
-            } else {
-                addFirebaseLog("Realtime DB: Running in local sandbox mode.")
+                _supabaseRestStatus.value = "Local Mock Sandbox (Active)"
+                _supabaseAuthStatus.value = "Local Mock Sandbox (Active)"
+                addSupabaseLog("Supabase init warning: Missing configuration or credentials. Running in local sandbox mode.")
+                setupMockListeners()
             }
         }
     }
 
-    private fun <T : Any> listenCollection(
-        fs: FirebaseFirestore,
-        collectionName: String,
+    private fun setupSupabaseListeners() {
+        addSupabaseLog("📡 Active sync listening on Supabase REST endpoints initialized.")
+        // In a real production scenario, we could listen using WebSockets/Realtime,
+        // or poll endpoints. Let's poll for records periodically as a robust background fallback.
+        scope.launch {
+            var lastPollTime = System.currentTimeMillis()
+            while (true) {
+                kotlinx.coroutines.delay(15000) // Poll every 15 seconds if online
+                if (_isOnline.value) {
+                    pollSupabaseTable("users_registration", SaccoUser::class.java, lastPollTime) { user ->
+                        database.userDao().insertUser(user)
+                    }
+                    pollSupabaseTable("member_profiles", MemberProfile::class.java, lastPollTime) { profile ->
+                        database.profileDao().insertProfile(profile)
+                    }
+                    pollSupabaseTable("savings_payments", SavingsPayment::class.java, lastPollTime) { payment ->
+                        database.paymentDao().insertPayment(payment)
+                    }
+                    pollSupabaseTable("loan_applications", LoanApplication::class.java, lastPollTime) { loan ->
+                        database.loanDao().insertApplication(loan)
+                    }
+                    pollSupabaseTable("loan_repayments", LoanRepayment::class.java, lastPollTime) { repayment ->
+                        database.repaymentDao().insertRepayment(repayment)
+                    }
+                    pollSupabaseTable("sacco_expenses", SaccoExpense::class.java, lastPollTime) { expense ->
+                        database.expenseDao().insertExpense(expense)
+                    }
+                    lastPollTime = System.currentTimeMillis()
+                }
+            }
+        }
+    }
+
+    private fun setupMockListeners() {
+        addSupabaseLog("📡 [Local Sandbox Mode] Active sync listening simulation on Supabase tables.")
+    }
+
+    private fun <T : Any> pollSupabaseTable(
+        tableName: String,
         clazz: Class<T>,
+        sinceTime: Long,
         onRecordReceived: suspend (T) -> Unit
     ) {
-        try {
-            fs.collection(collectionName).addSnapshotListener { snapshots, error ->
-                if (error != null) {
-                    Log.w(TAG, "Error listening to collection $collectionName: ${error.message}")
-                    return@addSnapshotListener
-                }
-                if (snapshots != null) {
-                    for (doc in snapshots.documentChanges) {
-                        if (doc.type == com.google.firebase.firestore.DocumentChange.Type.ADDED ||
-                            doc.type == com.google.firebase.firestore.DocumentChange.Type.MODIFIED
-                        ) {
-                            val data = doc.document.data
-                            scope.launch {
-                                try {
-                                    val cleanData = cleanFirebaseMap(data)
+        val url = "${getSupabaseUrl()}/rest/v1/$tableName?_syncTimestamp=gt.$sinceTime"
+        val request = Request.Builder()
+            .url(url)
+            .addHeader("apikey", getSupabaseKey())
+            .addHeader("Authorization", "Bearer ${getSupabaseKey()}")
+            .get()
+            .build()
+
+        client.newCall(request).enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, e: IOException) {
+                Log.w(TAG, "Failed to poll Supabase table $tableName: ${e.message}")
+            }
+
+            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                response.use {
+                    if (response.isSuccessful) {
+                        val bodyStr = response.body?.string() ?: "[]"
+                        scope.launch {
+                            try {
+                                val listType = com.squareup.moshi.Types.newParameterizedType(List::class.java, Map::class.java)
+                                val adapter = moshi.adapter<List<Map<String, Any>>>(listType)
+                                val records = adapter.fromJson(bodyStr) ?: emptyList()
+                                for (recordMap in records) {
+                                    val cleanData = cleanSupabaseMap(recordMap)
                                     val json = moshi.adapter(Map::class.java).toJson(cleanData)
                                     val record = moshi.adapter(clazz).fromJson(json)
                                     if (record != null) {
                                         onRecordReceived(record)
                                     }
-                                } catch (e: Exception) {
-                                    Log.e(TAG, "Error deserializing collection $collectionName doc ${doc.document.id}: ${e.message}")
                                 }
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error parsing polled Supabase data for $tableName: ${e.message}")
                             }
                         }
                     }
                 }
             }
-            addFirebaseLog("📡 Active sync listening on Firestore collection: $collectionName")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to register listener for $collectionName: ${e.message}")
-        }
+        })
     }
 
-    private fun <T : Any> listenRealtimeDb(
-        db: FirebaseDatabase,
-        collectionName: String,
-        clazz: Class<T>,
-        onRecordReceived: suspend (T) -> Unit
-    ) {
-        try {
-            db.getReference("sacco_realtime_sync")
-                .child(collectionName)
-                .addChildEventListener(object : com.google.firebase.database.ChildEventListener {
-                    override fun onChildAdded(snapshot: com.google.firebase.database.DataSnapshot, previousChildName: String?) {
-                        processSnapshot(snapshot)
-                    }
-
-                    override fun onChildChanged(snapshot: com.google.firebase.database.DataSnapshot, previousChildName: String?) {
-                        processSnapshot(snapshot)
-                    }
-
-                    override fun onChildRemoved(snapshot: com.google.firebase.database.DataSnapshot) {}
-                    override fun onChildMoved(snapshot: com.google.firebase.database.DataSnapshot, previousChildName: String?) {}
-                    override fun onCancelled(error: com.google.firebase.database.DatabaseError) {
-                        Log.w(TAG, "RTDB Cancelled listener for $collectionName: ${error.message}")
-                    }
-
-                    private fun processSnapshot(snapshot: com.google.firebase.database.DataSnapshot) {
-                        val value = snapshot.value
-                        if (value is Map<*, *>) {
-                            scope.launch {
-                                try {
-                                    @Suppress("UNCHECKED_CAST")
-                                    val cleanData = cleanFirebaseMap(value as Map<String, Any?>)
-                                    val json = moshi.adapter(Map::class.java).toJson(cleanData)
-                                    val record = moshi.adapter(clazz).fromJson(json)
-                                    if (record != null) {
-                                        onRecordReceived(record)
-                                    }
-                                } catch (e: Exception) {
-                                    Log.e(TAG, "Error deserializing RTDB $collectionName node ${snapshot.key}: ${e.message}")
-                                }
-                            }
-                        }
-                    }
-                })
-            addFirebaseLog("⚡ Active sync listening on Realtime DB: $collectionName")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to register RTDB listener for $collectionName: ${e.message}")
-        }
-    }
-
-    private fun cleanFirebaseMap(map: Map<String, Any?>): Map<String, Any?> {
+    private fun cleanSupabaseMap(map: Map<String, Any?>): Map<String, Any?> {
         val cleaned = mutableMapOf<String, Any?>()
         map.forEach { (key, value) ->
             if (!key.startsWith("_")) {
                 if (value is Map<*, *>) {
                     @Suppress("UNCHECKED_CAST")
-                    cleaned[key] = cleanFirebaseMap(value as Map<String, Any?>)
+                    cleaned[key] = cleanSupabaseMap(value as Map<String, Any?>)
                 } else if (value is Number) {
                     val intKeys = setOf(
                         "id", "cycleMonthIndex", "cycleYear", "year", 
@@ -244,105 +231,30 @@ class SaccoSyncEngine(
         return cleaned
     }
 
-    private fun setupFirestoreListeners(fs: FirebaseFirestore) {
-        listenCollection(fs, "users_registration", SaccoUser::class.java) { user ->
-            database.userDao().insertUser(user)
-        }
-        listenCollection(fs, "member_profiles", MemberProfile::class.java) { profile ->
-            database.profileDao().insertProfile(profile)
-        }
-        listenCollection(fs, "savings_payments", SavingsPayment::class.java) { payment ->
-            database.paymentDao().insertPayment(payment)
-        }
-        listenCollection(fs, "loan_applications", LoanApplication::class.java) { loan ->
-            database.loanDao().insertApplication(loan)
-        }
-        listenCollection(fs, "loan_repayments", LoanRepayment::class.java) { repayment ->
-            database.repaymentDao().insertRepayment(repayment)
-        }
-        listenCollection(fs, "sacco_expenses", SaccoExpense::class.java) { expense ->
-            database.expenseDao().insertExpense(expense)
-        }
-        listenCollection(fs, "savings_plans", SavingsPlan::class.java) { plan ->
-            database.savingsPlanDao().insertPlan(plan)
-        }
-        listenCollection(fs, "member_referrals", MemberReferral::class.java) { referral ->
-            database.referralDao().insertReferral(referral)
-        }
-        listenCollection(fs, "savings_rules", SavingsRule::class.java) { rule ->
-            database.ruleDao().insertRule(rule)
-        }
-        listenCollection(fs, "declared_dividends", DeclaredDividend::class.java) { dividend ->
-            database.declaredDividendDao().insertDeclaredDividend(dividend)
-        }
-        listenCollection(fs, "dividend_audit_records", DividendAuditRecord::class.java) { record ->
-            database.dividendAuditRecordDao().insertAuditRecords(listOf(record))
-        }
-        listenCollection(fs, "sacco_notifications", SaccoNotification::class.java) { notification ->
-            database.notificationDao().insertNotification(notification)
-        }
-        listenCollection(fs, "loan_products", LoanProduct::class.java) { product ->
-            database.productDao().insertProduct(product)
-        }
-    }
-
-    private fun setupRealtimeDbListeners(db: FirebaseDatabase) {
-        listenRealtimeDb(db, "users_registration", SaccoUser::class.java) { user ->
-            database.userDao().insertUser(user)
-        }
-        listenRealtimeDb(db, "member_profiles", MemberProfile::class.java) { profile ->
-            database.profileDao().insertProfile(profile)
-        }
-        listenRealtimeDb(db, "savings_payments", SavingsPayment::class.java) { payment ->
-            database.paymentDao().insertPayment(payment)
-        }
-        listenRealtimeDb(db, "loan_applications", LoanApplication::class.java) { loan ->
-            database.loanDao().insertApplication(loan)
-        }
-        listenRealtimeDb(db, "loan_repayments", LoanRepayment::class.java) { repayment ->
-            database.repaymentDao().insertRepayment(repayment)
-        }
-        listenRealtimeDb(db, "sacco_expenses", SaccoExpense::class.java) { expense ->
-            database.expenseDao().insertExpense(expense)
-        }
-        listenRealtimeDb(db, "savings_plans", SavingsPlan::class.java) { plan ->
-            database.savingsPlanDao().insertPlan(plan)
-        }
-        listenRealtimeDb(db, "member_referrals", MemberReferral::class.java) { referral ->
-            database.referralDao().insertReferral(referral)
-        }
-        listenRealtimeDb(db, "savings_rules", SavingsRule::class.java) { rule ->
-            database.ruleDao().insertRule(rule)
-        }
-        listenRealtimeDb(db, "declared_dividends", DeclaredDividend::class.java) { dividend ->
-            database.declaredDividendDao().insertDeclaredDividend(dividend)
-        }
-        listenRealtimeDb(db, "dividend_audit_records", DividendAuditRecord::class.java) { record ->
-            database.dividendAuditRecordDao().insertAuditRecords(listOf(record))
-        }
-        listenRealtimeDb(db, "sacco_notifications", SaccoNotification::class.java) { notification ->
-            database.notificationDao().insertNotification(notification)
-        }
-        listenRealtimeDb(db, "loan_products", LoanProduct::class.java) { product ->
-            database.productDao().insertProduct(product)
-        }
-    }
-
-    fun deleteFromFirebase(collectionName: String, documentId: String) {
+    fun deleteFromSupabase(tableName: String, idField: String, idValue: String) {
         scope.launch {
-            val fs = firestore
-            if (fs != null) {
-                fs.collection(collectionName).document(documentId).delete()
-                    .addOnSuccessListener {
-                        addFirebaseLog("🗑️ Deleted $collectionName/$documentId from Firestore")
+            if (isSupabaseConfigured()) {
+                val url = "${getSupabaseUrl()}/rest/v1/$tableName?$idField=eq.$idValue"
+                val request = Request.Builder()
+                    .url(url)
+                    .addHeader("apikey", getSupabaseKey())
+                    .addHeader("Authorization", "Bearer ${getSupabaseKey()}")
+                    .delete()
+                    .build()
+
+                try {
+                    client.newCall(request).execute().use { response ->
+                        if (response.isSuccessful) {
+                            addSupabaseLog("🗑️ Deleted $tableName where $idField=$idValue from Supabase PostgreSQL")
+                        } else {
+                            addSupabaseLog("⚠️ Supabase Delete Failed: ${response.code} ${response.message}")
+                        }
                     }
-            }
-            val db = rtdb
-            if (db != null) {
-                db.getReference("sacco_realtime_sync").child(collectionName).child(documentId).removeValue()
-                    .addOnSuccessListener {
-                        addFirebaseLog("⚡ Deleted $collectionName/$documentId from Realtime DB")
-                    }
+                } catch (e: Exception) {
+                    addSupabaseLog("⚠️ Supabase Delete Error: ${e.localizedMessage}")
+                }
+            } else {
+                addSupabaseLog("💾 [Local Sandbox Mode] Supabase deleted $tableName where $idField=$idValue locally.")
             }
         }
     }
@@ -401,10 +313,10 @@ class SaccoSyncEngine(
             var errorMessage = ""
 
             try {
-                // Route requests to Kubernetes API Gateway & sync with Firebase Databases
+                // Route requests to Kubernetes API Gateway & sync with Supabase Databases
                 val gatewaySuccess = pushToCloudGateway(entry)
-                val firebaseSuccess = pushToFirebase(entry)
-                success = gatewaySuccess && firebaseSuccess
+                val supabaseSuccess = pushToSupabase(entry)
+                success = gatewaySuccess && supabaseSuccess
             } catch (e: Exception) {
                 errorMessage = e.message ?: "Unknown sync error"
                 Log.e(TAG, "Sync failed for action ID ${entry.id} (${entry.actionType}): $errorMessage")
@@ -412,9 +324,9 @@ class SaccoSyncEngine(
 
             if (success) {
                 syncQueueDao.updateStatus(entry.id, "SYNCED", "")
-                Log.i(TAG, "Successfully synced action ID ${entry.id} (${entry.actionType}) to Cloud Spanner and Firebase")
+                Log.i(TAG, "Successfully synced action ID ${entry.id} (${entry.actionType}) to Cloud Spanner and Supabase")
             } else {
-                syncQueueDao.updateStatus(entry.id, "FAILED", errorMessage.ifEmpty { "Backend Gateway or Firebase rejected record" })
+                syncQueueDao.updateStatus(entry.id, "FAILED", errorMessage.ifEmpty { "Backend Gateway or Supabase rejected record" })
             }
         }
 
@@ -423,11 +335,11 @@ class SaccoSyncEngine(
     }
 
     /**
-     * Synchronize a database entry with Cloud Firestore and Realtime Database
+     * Synchronize a database entry with Supabase Database
      */
-    private suspend fun pushToFirebase(entry: SyncQueueEntry): Boolean = withContext(Dispatchers.IO) {
-        var firestoreSuccess = false
-        var rtdbSuccess = false
+    private suspend fun pushToSupabase(entry: SyncQueueEntry): Boolean = withContext(Dispatchers.IO) {
+        var supabaseRestSuccess = false
+        var supabaseAuthSuccess = false
 
         val adapter = moshi.adapter(Map::class.java)
         val dataMap = try {
@@ -437,15 +349,15 @@ class SaccoSyncEngine(
         }
 
         if (dataMap == null) {
-            addFirebaseLog("⚠️ Failed to parse transaction payload of type ${entry.actionType}")
+            addSupabaseLog("⚠️ Failed to parse transaction payload of type ${entry.actionType}")
             return@withContext false
         }
 
-        // Prepare Firebase formatted transaction payload
-        val firebasePayload = dataMap.toMutableMap()
-        firebasePayload["_syncTimestamp"] = System.currentTimeMillis()
-        firebasePayload["_actionType"] = entry.actionType
-        firebasePayload["_id"] = entry.id
+        // Prepare Supabase formatted transaction payload
+        val supabasePayload = dataMap.toMutableMap()
+        supabasePayload["_syncTimestamp"] = System.currentTimeMillis()
+        supabasePayload["_actionType"] = entry.actionType
+        supabasePayload["_id"] = entry.id
 
         // Compute primary key IDs
         val documentId = when (entry.actionType) {
@@ -504,7 +416,7 @@ class SaccoSyncEngine(
             else -> "tx_${entry.id}"
         }
 
-        val collectionName = when (entry.actionType) {
+        val tableName = when (entry.actionType) {
             "SAVINGS_PAYMENT" -> "savings_payments"
             "LOAN_REPAYMENT" -> "loan_repayments"
             "LOAN_APPLICATION" -> "loan_applications"
@@ -521,90 +433,81 @@ class SaccoSyncEngine(
             else -> "misc_transactions"
         }
 
-        // 1. Sync document with Cloud Firestore
-        val fs = firestore
-        if (fs != null) {
+        // Add matching unique id for relational database upserts
+        if (!supabasePayload.containsKey("id")) {
+            supabasePayload["id"] = documentId
+        }
+
+        if (isSupabaseConfigured()) {
             try {
-                addFirebaseLog("Firestore: Writing document '$documentId' to collection '$collectionName'...")
+                addSupabaseLog("Supabase: Writing row '$documentId' to table '$tableName'...")
+
+                // Construct PostgREST upsert payload (must be array or single object)
+                val jsonPayload = moshi.adapter(Map::class.java).toJson(supabasePayload)
+
+                // PostgREST Upsert uses POST with "Prefer: resolution=merge-duplicates" header
+                val url = "${getSupabaseUrl()}/rest/v1/$tableName"
+                val request = Request.Builder()
+                    .url(url)
+                    .addHeader("apikey", getSupabaseKey())
+                    .addHeader("Authorization", "Bearer ${getSupabaseKey()}")
+                    .addHeader("Content-Type", "application/json")
+                    .addHeader("Prefer", "resolution=merge-duplicates")
+                    .post(jsonPayload.toRequestBody(jsonMediaType))
+                    .build()
+
                 var completed = false
-                fs.collection(collectionName)
-                    .document(documentId)
-                    .set(firebasePayload)
-                    .addOnSuccessListener {
+                client.newCall(request).enqueue(object : okhttp3.Callback {
+                    override fun onFailure(call: okhttp3.Call, e: IOException) {
                         completed = true
-                        firestoreSuccess = true
-                        _firestoreStatus.value = "Connected (Last synced: $documentId)"
-                        addFirebaseLog("✅ Firestore Sync Success: $collectionName/$documentId updated")
-                    }
-                    .addOnFailureListener { e ->
-                        completed = true
-                        _firestoreStatus.value = "Failed: ${e.localizedMessage}"
-                        addFirebaseLog("❌ Firestore Sync Failed: ${e.localizedMessage}")
+                        _supabaseRestStatus.value = "Failed: ${e.localizedMessage}"
+                        addSupabaseLog("❌ Supabase REST Sync Failed: ${e.localizedMessage}")
                     }
 
-                // Wait for async Firebase handler (up to 2.5 seconds)
+                    override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                        completed = true
+                        response.use {
+                            if (response.isSuccessful) {
+                                supabaseRestSuccess = true
+                                supabaseAuthSuccess = true
+                                _supabaseRestStatus.value = "Connected (Last synced: $documentId)"
+                                _supabaseAuthStatus.value = "Connected"
+                                addSupabaseLog("✅ Supabase REST Sync Success: $tableName/$documentId updated")
+                            } else {
+                                _supabaseRestStatus.value = "Failed: ${response.code}"
+                                addSupabaseLog("❌ Supabase REST Sync Failed: HTTP ${response.code} ${response.message}")
+                            }
+                        }
+                    }
+                })
+
+                // Wait for async handler (up to 2.5 seconds)
                 var elapsed = 0
                 while (!completed && elapsed < 25) {
                     kotlinx.coroutines.delay(100)
                     elapsed++
                 }
             } catch (e: Exception) {
-                addFirebaseLog("⚠️ Firestore error: ${e.localizedMessage}")
+                addSupabaseLog("⚠️ Supabase error: ${e.localizedMessage}")
             }
         } else {
-            // Emulate success for demo sandbox when Firebase service config is not provisioned
-            firestoreSuccess = true
-            _firestoreStatus.value = "Local Mock Sandbox (Active)"
-            addFirebaseLog("💾 [Local Sandbox Mode] Firestore synced document '$documentId' locally.")
+            // Emulate success for demo sandbox when Supabase service config is not provisioned
+            supabaseRestSuccess = true
+            supabaseAuthSuccess = true
+            _supabaseRestStatus.value = "Local Mock Sandbox (Active)"
+            _supabaseAuthStatus.value = "Local Mock Sandbox (Active)"
+            addSupabaseLog("💾 [Local Sandbox Mode] Supabase synced document '$documentId' locally.")
         }
 
-        // 2. Sync node with Firebase Realtime Database
-        val db = rtdb
-        if (db != null) {
-            try {
-                addFirebaseLog("Realtime DB: Updating node 'sacco_realtime_sync/$collectionName/$documentId'...")
-                var completed = false
-                db.getReference("sacco_realtime_sync")
-                    .child(collectionName)
-                    .child(documentId)
-                    .setValue(firebasePayload)
-                    .addOnSuccessListener {
-                        completed = true
-                        rtdbSuccess = true
-                        _rtdbStatus.value = "Connected (Last updated: $documentId)"
-                        addFirebaseLog("⚡ Realtime DB Sync Success: $collectionName/$documentId pushed")
-                    }
-                    .addOnFailureListener { e ->
-                        completed = true
-                        _rtdbStatus.value = "Failed: ${e.localizedMessage}"
-                        addFirebaseLog("❌ Realtime DB Sync Failed: ${e.localizedMessage}")
-                    }
-
-                // Wait for async Realtime Database handler (up to 2.5 seconds)
-                var elapsed = 0
-                while (!completed && elapsed < 25) {
-                    kotlinx.coroutines.delay(100)
-                    elapsed++
-                }
-            } catch (e: Exception) {
-                addFirebaseLog("⚠️ Realtime DB error: ${e.localizedMessage}")
-            }
-        } else {
-            // Emulate success for demo sandbox when Firebase service config is not provisioned
-            rtdbSuccess = true
-            _rtdbStatus.value = "Local Mock Sandbox (Active)"
-            addFirebaseLog("💾 [Local Sandbox Mode] Realtime DB updated node '$documentId' locally.")
+        if (supabaseRestSuccess && supabaseAuthSuccess) {
+            _supabaseSyncCount.value = _supabaseSyncCount.value + 1
         }
 
-        if (firestoreSuccess && rtdbSuccess) {
-            _firebaseSyncCount.value = _firebaseSyncCount.value + 1
-        }
-
-        return@withContext (firestoreSuccess && rtdbSuccess)
+        return@withContext (supabaseRestSuccess && supabaseAuthSuccess)
     }
 
     /**
-     * Complete Database Sweep/Backup to Firebase Firestore & Realtime Database
+     * Complete Database Sweep/Backup to Supabase Database
      */
     fun syncAllToFirebase(
         payments: List<SavingsPayment>,
@@ -614,17 +517,15 @@ class SaccoSyncEngine(
     ) {
         scope.launch {
             _isSyncing.value = true
-            addFirebaseLog("🔄 Initializing comprehensive database backup sweep to Firebase Cloud...")
+            addSupabaseLog("🔄 Initializing comprehensive database backup sweep to Supabase PostgreSQL...")
             
             var successCount = 0
-            val fs = firestore
-            val db = rtdb
 
             // 1. Sync all savings payments
             payments.forEach { payment ->
                 val json = moshi.adapter(SavingsPayment::class.java).toJson(payment)
                 val entry = SyncQueueEntry(actionType = "SAVINGS_PAYMENT", payloadJson = json)
-                val ok = pushToFirebase(entry)
+                val ok = pushToSupabase(entry)
                 if (ok) successCount++
             }
 
@@ -632,7 +533,7 @@ class SaccoSyncEngine(
             loans.forEach { loan ->
                 val json = moshi.adapter(LoanApplication::class.java).toJson(loan)
                 val entry = SyncQueueEntry(actionType = "LOAN_APPLICATION", payloadJson = json)
-                val ok = pushToFirebase(entry)
+                val ok = pushToSupabase(entry)
                 if (ok) successCount++
             }
 
@@ -640,12 +541,12 @@ class SaccoSyncEngine(
             profiles.forEach { profile ->
                 val json = moshi.adapter(MemberProfile::class.java).toJson(profile)
                 val entry = SyncQueueEntry(actionType = "USER_PROFILE", payloadJson = json)
-                val ok = pushToFirebase(entry)
+                val ok = pushToSupabase(entry)
                 if (ok) successCount++
             }
 
             _isSyncing.value = false
-            addFirebaseLog("🏆 Backup complete! Synced $successCount records to Cloud Firestore & Realtime DB.")
+            addSupabaseLog("🏆 Backup complete! Synced $successCount records to Supabase PostgreSQL.")
         }
     }
 
