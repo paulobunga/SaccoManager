@@ -13,7 +13,7 @@ To allow the Android app to connect directly to `sacco-app-bebb1`, you need to p
 2. Click the gear icon next to **Project Overview** and select **Project settings**.
 3. Under **Your apps**, click **Add app** (select the **Android** icon).
 4. Enter the package name / application ID:
-   * **Package Name / Namespace**: `com.example`
+   * **Package Name / Namespace**: `com.litesails.saccomanager`
 5. Register the app and click **Download google-services.json**.
 6. Upload or copy this file directly into the `/app` folder of your project workspace:
    ```text

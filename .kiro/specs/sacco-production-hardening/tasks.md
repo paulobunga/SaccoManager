@@ -76,7 +76,7 @@ Tasks are ordered by dependency. Complete each group before moving to the next.
   - File: `app/src/main/java/com/example/MainActivity.kt`
   - Related: REQ-4
 
-- [~] 15. Update `MainContent` `onLogOut` — call `FirebaseAuthManager.logout()` in addition to clearing `loggedInUser` state
+- [ ] 15. Update `MainContent` `onLogOut` — call `FirebaseAuthManager.logout()` in addition to clearing `loggedInUser` state
   - File: `app/src/main/java/com/example/MainActivity.kt`
   - Related: REQ-4
 
@@ -84,23 +84,23 @@ Tasks are ordered by dependency. Complete each group before moving to the next.
 
 ## Group 5: Firebase Storage Integration
 
-- [~] 16. Create `FirebaseStorageManager.kt` — implement `uploadFile(uri: Uri, storagePath: String): Result<String>` using `suspendCoroutine`; implement `uploadFileWithProgress(uri, path): Flow<UploadState>` using `callbackFlow`; implement `deleteFile(storagePath: String)`; validate file size ≤ 5MB before upload; define `UploadState` sealed class (Progress, Success, Error)
+- [ ] 16. Create `FirebaseStorageManager.kt` — implement `uploadFile(uri: Uri, storagePath: String): Result<String>` using `suspendCoroutine`; implement `uploadFileWithProgress(uri, path): Flow<UploadState>` using `callbackFlow`; implement `deleteFile(storagePath: String)`; validate file size ≤ 5MB before upload; define `UploadState` sealed class (Progress, Success, Error)
   - File: `app/src/main/java/com/example/network/FirebaseStorageManager.kt`
   - Related: REQ-6
 
-- [~] 17. Create `PermissionHelper.kt` — version-aware utility with `requestImagePermission(launcher: ActivityResultLauncher<String>)` that requests `READ_MEDIA_IMAGES` on API 33+ and `READ_EXTERNAL_STORAGE` on older; also provide `hasImagePermission(context: Context): Boolean`
+- [ ] 17. Create `PermissionHelper.kt` — version-aware utility with `requestImagePermission(launcher: ActivityResultLauncher<String>)` that requests `READ_MEDIA_IMAGES` on API 33+ and `READ_EXTERNAL_STORAGE` on older; also provide `hasImagePermission(context: Context): Boolean`
   - File: `app/src/main/java/com/example/ui/PermissionHelper.kt`
   - Related: REQ-12
 
-- [~] 18. Update `SavingsTimelineScreen.kt` — replace the mock `receiptImageUrl` string field with a real `ActivityResultLauncher` for the image picker; on image selection, call `FirebaseStorageManager.uploadFileWithProgress()`; show upload progress with `LinearProgressIndicator`; on success store download URL; on error show Snackbar with retry option; display uploaded receipt thumbnail using Coil `AsyncImage`
+- [ ] 18. Update `SavingsTimelineScreen.kt` — replace the mock `receiptImageUrl` string field with a real `ActivityResultLauncher` for the image picker; on image selection, call `FirebaseStorageManager.uploadFileWithProgress()`; show upload progress with `LinearProgressIndicator`; on success store download URL; on error show Snackbar with retry option; display uploaded receipt thumbnail using Coil `AsyncImage`
   - File: `app/src/main/java/com/example/ui/screens/SavingsTimelineScreen.kt`
   - Related: REQ-6
 
-- [~] 19. Update `RegistrationScreen.kt` — wire the profile photo and signature capture buttons to the image picker using `ActivityResultLauncher`; on selection, upload to `profiles/{memberId}/photo.jpg` and `profiles/{memberId}/signature.jpg` via `FirebaseStorageManager`; store download URLs in the `MemberProfile` fields; show upload progress and success/error states
+- [ ] 19. Update `RegistrationScreen.kt` — wire the profile photo and signature capture buttons to the image picker using `ActivityResultLauncher`; on selection, upload to `profiles/{memberId}/photo.jpg` and `profiles/{memberId}/signature.jpg` via `FirebaseStorageManager`; store download URLs in the `MemberProfile` fields; show upload progress and success/error states
   - File: `app/src/main/java/com/example/ui/screens/RegistrationScreen.kt`
   - Related: REQ-6
 
-- [~] 20. Create `storage.rules` — implement Firebase Storage security rules as designed: members can write to their own `receipts/{memberId}/` and `profiles/{memberId}/` paths; file size limit 5MB; content type restricted to `image/*`; admins can read all; add the storage rules target to `firebase.json`
+- [ ] 20. Create `storage.rules` — implement Firebase Storage security rules as designed: members can write to their own `receipts/{memberId}/` and `profiles/{memberId}/` paths; file size limit 5MB; content type restricted to `image/*`; admins can read all; add the storage rules target to `firebase.json`
   - Files: `storage.rules`, `firebase.json`
   - Related: REQ-6
 
@@ -108,31 +108,31 @@ Tasks are ordered by dependency. Complete each group before moving to the next.
 
 ## Group 6: Complete Truncated & Stub Functions
 
-- [~] 21. Complete `SaccoRepository.repayLoan()` — the function is cut off at `val app = loanDao.getA...`; implement the full repayment logic: fetch application, validate status is DISBURSED, split payment into principal/interest using flat-rate amortization, insert `LoanRepayment` record, update `LoanApplication` outstanding balance, mark COMPLETED if balance ≤ 0, handle `overpaymentAction` ("SAVINGS" / "NEXT_LOAN" / "NONE"), send member notification, log audit, enqueue sync
+- [ ] 21. Complete `SaccoRepository.repayLoan()` — the function is cut off at `val app = loanDao.getA...`; implement the full repayment logic: fetch application, validate status is DISBURSED, split payment into principal/interest using flat-rate amortization, insert `LoanRepayment` record, update `LoanApplication` outstanding balance, mark COMPLETED if balance ≤ 0, handle `overpaymentAction` ("SAVINGS" / "NEXT_LOAN" / "NONE"), send member notification, log audit, enqueue sync
   - File: `app/src/main/java/com/example/data/SaccoRepository.kt`
   - Related: REQ-8
 
-- [~] 22. Implement `SaccoRepository.runAutomatedReminders()` — iterate all `SavingsPlan` records; for each plan parse `nextDueDate`; if days until due ≤ `reminderDaysBefore` and `enableInApp` is true, insert a `SaccoNotification`; return `List<String>` of reminded member IDs; log audit with count
+- [ ] 22. Implement `SaccoRepository.runAutomatedReminders()` — iterate all `SavingsPlan` records; for each plan parse `nextDueDate`; if days until due ≤ `reminderDaysBefore` and `enableInApp` is true, insert a `SaccoNotification`; return `List<String>` of reminded member IDs; log audit with count
   - File: `app/src/main/java/com/example/data/SaccoRepository.kt`
   - Related: REQ-8
 
-- [~] 23. Implement `SaccoRepository.executeGoogleSheetsBackup()` — delegate to `syncEngine.syncAllToFirebase(payments, loans, profiles, users)` after fetching the latest data from Room flows; log audit; add a clear `// TODO: Replace with Google Sheets API integration in v2` comment
+- [ ] 23. Implement `SaccoRepository.executeGoogleSheetsBackup()` — delegate to `syncEngine.syncAllToFirebase(payments, loans, profiles, users)` after fetching the latest data from Room flows; log audit; add a clear `// TODO: Replace with Google Sheets API integration in v2` comment
   - File: `app/src/main/java/com/example/data/SaccoRepository.kt`
   - Related: REQ-8
 
-- [~] 24. Guard `SaccoRepository.seedTestData()` — add a DataStore preferences check using the `androidx.datastore.preferences` dependency; if the key `"seed_v1_complete"` is true, return immediately; otherwise seed and set the key to true; ensure seed data doesn't include plaintext passwords (use empty strings for `firebaseUid` in seed users)
+- [ ] 24. Guard `SaccoRepository.seedTestData()` — add a DataStore preferences check using the `androidx.datastore.preferences` dependency; if the key `"seed_v1_complete"` is true, return immediately; otherwise seed and set the key to true; ensure seed data doesn't include plaintext passwords (use empty strings for `firebaseUid` in seed users)
   - File: `app/src/main/java/com/example/data/SaccoRepository.kt`
   - Related: REQ-8
 
-- [~] 25. Complete `SaccoSyncEngine.monitorNetworkConnectivity()` — add the `NetworkCallback` implementation with `onAvailable` (sets `_isOnline = true`, calls `triggerSync()`), `onLost` (sets `_isOnline = false`), and `onCapabilitiesChanged`; call `connectivityManager.registerNetworkCallback(request, callback)`
+- [ ] 25. Complete `SaccoSyncEngine.monitorNetworkConnectivity()` — add the `NetworkCallback` implementation with `onAvailable` (sets `_isOnline = true`, calls `triggerSync()`), `onLost` (sets `_isOnline = false`), and `onCapabilitiesChanged`; call `connectivityManager.registerNetworkCallback(request, callback)`
   - File: `app/src/main/java/com/example/network/SaccoSyncEngine.kt`
   - Related: REQ-8
 
-- [~] 26. Fix `SaccoSyncEngine.pushToCloudGateway()` — add a clear comment that this is a simulation stub; remove the misleading code that builds a `Request` but never executes it; replace with `Log.d(TAG, "Cloud Gateway: simulated push for ${entry.actionType}")` and return `true`; add `// TODO: Replace with real Kubernetes API Gateway call using SaccoNetworkClient.okHttpClient`
+- [ ] 26. Fix `SaccoSyncEngine.pushToCloudGateway()` — add a clear comment that this is a simulation stub; remove the misleading code that builds a `Request` but never executes it; replace with `Log.d(TAG, "Cloud Gateway: simulated push for ${entry.actionType}")` and return `true`; add `// TODO: Replace with real Kubernetes API Gateway call using SaccoNetworkClient.okHttpClient`
   - File: `app/src/main/java/com/example/network/SaccoSyncEngine.kt`
   - Related: REQ-8
 
-- [~] 27. Fix `SaccoSyncEngine.pushToFirebase()` — change all Firestore `set(firebasePayload)` calls to `set(firebasePayload, SetOptions.merge())` to prevent overwriting existing fields; strip internal metadata keys (`_syncTimestamp`, `_actionType`, `_id`) from the document payload before writing (these can remain in the local `SyncQueueEntry` but should not pollute Firestore documents)
+- [ ] 27. Fix `SaccoSyncEngine.pushToFirebase()` — change all Firestore `set(firebasePayload)` calls to `set(firebasePayload, SetOptions.merge())` to prevent overwriting existing fields; strip internal metadata keys (`_syncTimestamp`, `_actionType`, `_id`) from the document payload before writing (these can remain in the local `SyncQueueEntry` but should not pollute Firestore documents)
   - File: `app/src/main/java/com/example/network/SaccoSyncEngine.kt`
   - Related: REQ-7
 
@@ -140,11 +140,11 @@ Tasks are ordered by dependency. Complete each group before moving to the next.
 
 ## Group 7: ViewModel Extraction
 
-- [~] 28. Create `SaccoViewModel.kt` — extend `AndroidViewModel`; initialize `SaccoDatabase` and `SaccoRepository` in `init`; expose all data flows as `StateFlow` using `stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())`; move all `scope.launch { repository.x() }` calls from `MainContent` into named ViewModel functions; manage `loggedInUser`, `activeRole`, `currentScreenRoute`, and `showRegisterForm` as `MutableStateFlow`s; handle Firebase Auth session restoration in `init`
+- [ ] 28. Create `SaccoViewModel.kt` — extend `AndroidViewModel`; initialize `SaccoDatabase` and `SaccoRepository` in `init`; expose all data flows as `StateFlow` using `stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())`; move all `scope.launch { repository.x() }` calls from `MainContent` into named ViewModel functions; manage `loggedInUser`, `activeRole`, `currentScreenRoute`, and `showRegisterForm` as `MutableStateFlow`s; handle Firebase Auth session restoration in `init`
   - File: `app/src/main/java/com/example/ui/viewmodel/SaccoViewModel.kt`
   - Related: REQ-16
 
-- [~] 29. Refactor `MainActivity.kt` to use `SaccoViewModel` — replace direct `database`/`repository` instantiation with `viewModel<SaccoViewModel>()`; replace all `collectAsStateWithLifecycle` calls with delegating to the ViewModel's StateFlows; remove all `scope.launch { repository.x() }` lambda definitions and replace with `viewModel.functionName()`; remove `private lateinit var database` and `private lateinit var repository` fields from `MainActivity`
+- [ ] 29. Refactor `MainActivity.kt` to use `SaccoViewModel` — replace direct `database`/`repository` instantiation with `viewModel<SaccoViewModel>()`; replace all `collectAsStateWithLifecycle` calls with delegating to the ViewModel's StateFlows; remove all `scope.launch { repository.x() }` lambda definitions and replace with `viewModel.functionName()`; remove `private lateinit var database` and `private lateinit var repository` fields from `MainActivity`
   - File: `app/src/main/java/com/example/MainActivity.kt`
   - Related: REQ-16
 
@@ -152,7 +152,7 @@ Tasks are ordered by dependency. Complete each group before moving to the next.
 
 ## Group 8: Firestore Security Rules Update
 
-- [~] 30. Update `firestore.rules` — add explicit rules for all 13 collections (currently only 5 have explicit rules); update `isOwner()` to resolve against Firebase Auth UID; add `audit_logs` collection rule (write-once from any authenticated user, admin-only read); add `sacco_notifications` rule (users can read their own, admins can write all); add `loan_products`, `savings_rules`, `declared_dividends`, `dividend_audit_records`, `member_referrals`, `savings_plans` rules; tighten `misc_transactions` to admin-only
+- [ ] 30. Update `firestore.rules` — add explicit rules for all 13 collections (currently only 5 have explicit rules); update `isOwner()` to resolve against Firebase Auth UID; add `audit_logs` collection rule (write-once from any authenticated user, admin-only read); add `sacco_notifications` rule (users can read their own, admins can write all); add `loan_products`, `savings_rules`, `declared_dividends`, `dividend_audit_records`, `member_referrals`, `savings_plans` rules; tighten `misc_transactions` to admin-only
   - File: `firestore.rules`
   - Related: REQ-14
 
@@ -160,15 +160,15 @@ Tasks are ordered by dependency. Complete each group before moving to the next.
 
 ## Group 9: Final Cleanup
 
-- [~] 31. Update `SaccoSyncEngine.cleanFirebaseMap()` — add `firebaseUid` to the string keys list; remove `password` from any key mappings; ensure enum string fields pass through correctly
+- [ ] 31. Update `SaccoSyncEngine.cleanFirebaseMap()` — add `firebaseUid` to the string keys list; remove `password` from any key mappings; ensure enum string fields pass through correctly
   - File: `app/src/main/java/com/example/network/SaccoSyncEngine.kt`
   - Related: REQ-7
 
-- [~] 32. Update `SaccoRepository.logAudit()` helper — replace hardcoded `ipAddress` by using `NetworkInterface.getNetworkInterfaces()` to retrieve the device's local IP; wrap in try/catch and fall back to `"UNKNOWN"`
+- [ ] 32. Update `SaccoRepository.logAudit()` helper — replace hardcoded `ipAddress` by using `NetworkInterface.getNetworkInterfaces()` to retrieve the device's local IP; wrap in try/catch and fall back to `"UNKNOWN"`
   - File: `app/src/main/java/com/example/data/SaccoRepository.kt`
   - Related: REQ-15
 
-- [~] 33. Update `README.md` — document the Firebase setup steps (Auth, Storage, Firestore), the `.env` setup for `GEMINI_API_KEY`, the database migration policy, and the build configuration requirements; add a "Production Deployment Checklist" section covering: real certificate pinning hashes, removing/guarding sandbox test accounts, configuring Firebase App Check
+- [ ] 33. Update `README.md` — document the Firebase setup steps (Auth, Storage, Firestore), the `.env` setup for `GEMINI_API_KEY`, the database migration policy, and the build configuration requirements; add a "Production Deployment Checklist" section covering: real certificate pinning hashes, removing/guarding sandbox test accounts, configuring Firebase App Check
 
 ---
 

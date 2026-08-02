@@ -8,11 +8,11 @@ plugins {
 }
 
 android {
-  namespace = "com.example"
+  namespace = "com.litesails.saccomanager"
   compileSdk = 35
 
   defaultConfig {
-    applicationId = "com.example"
+    applicationId = "com.litesails.saccomanager"
     minSdk = 24
     targetSdk = 35
     versionCode = 1
@@ -102,6 +102,7 @@ dependencies {
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
   // implementation(libs.play.services.location)
+  implementation(libs.clerk.android)
   implementation(libs.retrofit)
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
