@@ -36,7 +36,6 @@ moshiKotlinCodegen = "1.15.2"
 datastorePreferences = "1.1.7"
 robolectric = "4.16.1"
 roborazzi = "1.59.0"
-clerkAndroid = "2.2.1"
 secretsGradlePlugin = "2.0.1"
 
 [libraries]
@@ -85,7 +84,6 @@ robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "
 roborazzi = { group = "io.github.takahirom.roborazzi", name = "roborazzi", version.ref = "roborazzi" }
 roborazzi-compose = { group = "io.github.takahirom.roborazzi", name = "roborazzi-compose", version.ref = "roborazzi" }
 roborazzi-junit-rule = { group = "io.github.takahirom.roborazzi", name = "roborazzi-junit-rule", version.ref = "roborazzi" }
-clerk-android = { group = "com.clerk.android", name = "clerk-android", version.ref = "clerkAndroid" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

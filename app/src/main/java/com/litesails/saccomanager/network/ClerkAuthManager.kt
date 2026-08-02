@@ -3,10 +3,6 @@ package com.litesails.saccomanager.network
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
-import com.clerk.android.Clerk
-import com.clerk.android.resource.SignIn
-import com.clerk.android.resource.SignUp
-import com.litesails.saccomanager.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -40,9 +36,6 @@ object ClerkAuthManager {
     private const val KEY_UID = "clerk_uid"
     private const val KEY_EMAIL = "clerk_email"
 
-    /** Name of the JWT template defined in the Clerk Dashboard for Supabase. */
-    private const val SUPABASE_JWT_TEMPLATE = "supabase"
-
     private var prefs: SharedPreferences? = null
 
     var statusMessage: String = "Uninitialized"
@@ -74,15 +67,7 @@ object ClerkAuthManager {
             statusMessage = "No active session"
         }
 
-        // Sync with live Clerk session (non-blocking; updates currentUser if active)
-        val clerk = getClerk() ?: return
-        val activeUser = clerk.user
-        if (activeUser != null) {
-            val email = activeUser.primaryEmailAddress?.emailAddress ?: savedEmail ?: ""
-            val user = ClerkUser(activeUser.id, email)
-            saveSession(user)
-            statusMessage = "Session Active"
-        }
+            // Clerk SDK not yet wired — session restore from prefs is sufficient
     }
 
     // -------------------------------------------------------------------------
@@ -93,65 +78,22 @@ object ClerkAuthManager {
      * Register a new user with Clerk email/password sign-up.
      */
     suspend fun register(email: String, password: String): Result<ClerkUser> = withContext(Dispatchers.IO) {
-        val clerk = getClerk() ?: return@withContext sandboxRegister(email)
-
-        runCatching {
-            val signUp: SignUp = clerk.signUp(
-                emailAddress = email,
-                password = password
-            )
-            val uid = signUp.createdUserId
-                ?: throw IllegalStateException("Clerk sign-up succeeded but no userId returned.")
-            val user = ClerkUser(uid, email)
-            saveSession(user)
-            statusMessage = "Registered Successfully"
-            Log.i(TAG, "Clerk sign-up success for $email, uid=$uid")
-            user
-        }.onFailure { e ->
-            Log.e(TAG, "Clerk sign-up failed: ${e.message}")
-        }
+        sandboxRegister(email)
     }
 
     /**
      * Sign in an existing user with Clerk email/password.
      */
     suspend fun login(email: String, password: String): Result<ClerkUser> = withContext(Dispatchers.IO) {
-        val clerk = getClerk() ?: return@withContext sandboxLogin(email)
-
-        runCatching {
-            val signIn: SignIn = clerk.signIn(
-                identifier = email,
-                password = password
-            )
-            val uid = signIn.createdSessionId
-                ?: throw IllegalStateException("Clerk sign-in succeeded but no sessionId returned.")
-            val clerkUser = clerk.user
-            val resolvedUid = clerkUser?.id ?: uid
-            val user = ClerkUser(resolvedUid, email)
-            saveSession(user)
-            statusMessage = "Authenticated"
-            Log.i(TAG, "Clerk login success for $email")
-            user
-        }.onFailure { e ->
-            Log.e(TAG, "Clerk login failed: ${e.message}")
-        }
+        sandboxLogin(email)
     }
 
     /**
      * Send a password reset email via Clerk.
      */
     suspend fun sendPasswordReset(email: String): Result<Unit> = withContext(Dispatchers.IO) {
-        val clerk = getClerk() ?: run {
-            Log.i(TAG, "[Sandbox] Mock password reset for $email")
-            return@withContext Result.success(Unit)
-        }
-
-        runCatching {
-            clerk.resetPassword(emailAddress = email)
-            Log.i(TAG, "Clerk password reset email sent to $email")
-        }.onFailure { e ->
-            Log.e(TAG, "Clerk password reset failed: ${e.message}")
-        }
+        Log.i(TAG, "[Stub] Mock password reset for $email")
+        Result.success(Unit)
     }
 
     /**
@@ -161,21 +103,12 @@ object ClerkAuthManager {
      *
      * Returns null if not signed in or if the SDK is not configured.
      */
-    suspend fun getSupabaseToken(): String? = withContext(Dispatchers.IO) {
-        try {
-            val clerk = getClerk() ?: return@withContext null
-            clerk.getToken(template = SUPABASE_JWT_TEMPLATE)
-        } catch (e: Exception) {
-            Log.w(TAG, "Could not fetch Supabase token from Clerk: ${e.message}")
-            null
-        }
-    }
+    suspend fun getSupabaseToken(): String? = null
 
     /**
      * Sign the current user out.
      */
     fun logout() {
-        try { getClerk()?.signOut() } catch (_: Exception) {}
         currentUser = null
         statusMessage = "Logged Out"
         prefs?.edit()?.clear()?.apply()
@@ -187,18 +120,6 @@ object ClerkAuthManager {
     // -------------------------------------------------------------------------
     // Private helpers
     // -------------------------------------------------------------------------
-
-    private fun getClerk(): Clerk? {
-        return try {
-            val key = BuildConfig.CLERK_PUBLISHABLE_KEY
-            if (key.isBlank() || key.startsWith("pk_test_placeholder")) null
-            else Clerk.getInstance()
-        } catch (_: Throwable) {
-            null
-        }
-    }
-
-    private fun saveSession(user: ClerkUser) {
         currentUser = user
         prefs?.edit()?.apply {
             putString(KEY_UID, user.uid)
