@@ -45,7 +45,7 @@ android {
       signingConfig = signingConfigs.getByName("release")
     }
     debug {
-      // Use default debug signing
+      signingConfig = signingConfigs.getByName("debugConfig")
     }
   }
   compileOptions {
@@ -60,6 +60,17 @@ android {
     buildConfig = true
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
+  packaging {
+    resources {
+      excludes += listOf(
+        "META-INF/versions/9/**",
+        "META-INF/LICENSE",
+        "META-INF/LICENSE.txt",
+        "META-INF/NOTICE",
+        "META-INF/NOTICE.txt"
+      )
+    }
+  }
 }
 
 // Configure the Secrets Gradle Plugin to use .env and .env.example files
