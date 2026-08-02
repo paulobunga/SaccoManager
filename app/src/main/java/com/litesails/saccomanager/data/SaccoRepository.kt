@@ -18,7 +18,7 @@ import java.util.*
 class SaccoRepository(private val context: Context, private val db: SaccoDatabase) {
 
     // Sync Engine
-    val syncEngine = com.example.network.SaccoSyncEngine(context, db)
+    val syncEngine = com.litesails.saccomanager.network.SaccoSyncEngine(context, db)
 
     // DAOs
     private val userDao = db.userDao()

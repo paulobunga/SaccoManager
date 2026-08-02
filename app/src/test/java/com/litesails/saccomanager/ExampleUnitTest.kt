@@ -1,4 +1,4 @@
-package com.example
+package com.litesails.saccomanager
 
 import org.junit.Assert.*
 import org.junit.Test

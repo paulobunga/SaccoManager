@@ -34,7 +34,7 @@ fun ReportsScreen(
     profilesList: List<MemberProfile>,
     allPayments: List<SavingsPayment>,
     allLoans: List<LoanApplication>,
-    syncEngine: com.example.network.SaccoSyncEngine? = null,
+    syncEngine: com.litesails.saccomanager.network.SaccoSyncEngine? = null,
     allUsers: List<SaccoUser> = emptyList(),
     loggedInUserId: String = "admin",
     activeRole: UserRole = UserRole.ADMIN
