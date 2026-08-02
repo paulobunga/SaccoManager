@@ -120,6 +120,8 @@ object ClerkAuthManager {
     // -------------------------------------------------------------------------
     // Private helpers
     // -------------------------------------------------------------------------
+
+    private fun saveSession(user: ClerkUser) {
         currentUser = user
         prefs?.edit()?.apply {
             putString(KEY_UID, user.uid)
