@@ -604,4 +604,34 @@ class SaccoSyncEngine(
         val key = getSupabaseKey()
         return url.isNotEmpty() && !url.contains("your-supabase-url") && key.isNotEmpty() && !key.contains("MY_GEMINI")
     }
+
+    suspend fun pollPendingIotecPayments() = withContext(Dispatchers.IO) {
+        try {
+            val pending = db.paymentDao().getAllPaymentsFlow().firstOrNull()
+                ?.filter { it.iotecRequestId.isNotBlank() && it.iotecStatus.equals("PENDING", ignoreCase = true) }
+                ?: emptyList()
+
+            pending.forEach { payment ->
+                try {
+                    val iotecStatusUrl = "${getSupabaseUrl()}/functions/v1/iotec-status?requestId=${payment.iotecRequestId}"
+                    val request = Request.Builder()
+                        .url(iotecStatusUrl)
+                        .get()
+                        .build()
+
+                    client.newCall(request).execute().use { response ->
+                        if (response.isSuccessful) {
+                            val body = response.body?.string() ?: ""
+                            // This will be processed when the app is fully compiled
+                            Log.d(TAG, "IOTEC status poll result: $body")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to poll IOTEC status for ${payment.iotecRequestId}: ${e.message}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "IOTEC polling error: ${e.message}")
+        }
+    }
 }

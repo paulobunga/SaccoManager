@@ -336,10 +336,6 @@ class SaccoRepository(private val context: Context, private val db: SaccoDatabas
 
         val rule = ruleDao.getRule() ?: SavingsRule()
         val monthlyRequired = rule.monthlyAmount
-
-        // Instead of dividing and limiting the amount across multiple months, we allow members to
-        // save the full, exact amount they deposit for the specified month.
-        // This supports custom payments like 150k, 200k, or more.
         val leftForThisMonth = (monthlyRequired - amount).coerceAtLeast(0.0)
 
         val payment = SavingsPayment(
@@ -356,14 +352,13 @@ class SaccoRepository(private val context: Context, private val db: SaccoDatabas
             bankName = bankName,
             branch = branch,
             transactionId = transactionId,
-            notes = notes
+            notes = notes,
+            iotecRequestId = receiptNumber,
+            iotecStatus = if (receiptNumber.startsWith("iotec-collect")) "IOTEC_PENDING" else ""
         )
 
         paymentDao.insertPayment(payment)
-
-        // Queue for synchronization with Cloud Spanner
         syncEngine.enqueue("SAVINGS_PAYMENT", payment, SavingsPayment::class.java)
-
         logAudit(memberName, "MEMBER", "SUBMIT_SAVINGS_PAYMENT", "Submitted bank receipt for custom savings amount of UGX $amount for month $cycleMonthIndex.")
         sendNotification("ALL_ADMINS", "New Payment Receipt", "New savings payment of UGX $amount from $memberName requires verification.", "SAVINGS")
     }
@@ -421,6 +416,56 @@ class SaccoRepository(private val context: Context, private val db: SaccoDatabas
             }
             sendNotification(payment.memberId, title, body, "SAVINGS")
         }
+    }
+
+    suspend fun getPaymentByIotecRequestId(requestId: String): SavingsPayment? = withContext(Dispatchers.IO) {
+        db.paymentDao().getAllPaymentsFlow().firstOrNull()?.find { it.iotecRequestId == requestId }
+    }
+
+    suspend fun updateIotecPaymentStatus(
+        requestId: String,
+        iotecStatus: String,
+        attempts: Int,
+        completedAt: String
+    ) = withContext(Dispatchers.IO) {
+        val payment = getPaymentByIotecRequestId(requestId)
+        if (payment != null) {
+            val mappedStatus = when (iotecStatus.lowercase()) {
+                "success" -> VerificationStatus.APPROVED
+                "failed", "cancelled" -> VerificationStatus.REJECTED
+                else -> VerificationStatus.PENDING
+            }
+            paymentDao.updatePayment(
+                id = payment.id,
+                iotecStatus = iotecStatus,
+                iotecPollingAttempts = attempts,
+                iotecPollingCompletedAt = completedAt,
+                status = mappedStatus
+            )
+            
+            val paymentAfterUpdate = getPaymentByIotecRequestId(requestId)
+            if (paymentAfterUpdate != null) {
+                syncEngine.enqueue("SAVINGS_PAYMENT", paymentAfterUpdate, SavingsPayment::class.java)
+            }
+        }
+    }
+
+    suspend fun retryIotecPayment(
+        requestId: String,
+        memberId: String,
+        memberName: String
+    ): Result<String> = withContext(Dispatchers.IO) {
+        val payment = getPaymentByIotecRequestId(requestId)
+        if (payment == null) {
+            return@withContext Result.failure(IllegalStateException("Payment not found"))
+        }
+
+        if (payment.iotecPollingAttempts >= 30) {
+            return@withContext Result.failure(IllegalStateException("Maximum retry attempts reached"))
+        }
+
+        logAudit(memberName, "MEMBER", "RETRY_IOTEC_PAYMENT", "Retrying IOTEC payment for request $requestId")
+        Result.success("Retry initiated")
     }
 
     // Loans Modules

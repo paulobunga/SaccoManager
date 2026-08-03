@@ -14,11 +14,16 @@ android {
   defaultConfig {
     applicationId = "com.litesails.saccomanager"
     minSdk = 24
-    targetSdk = 36
+    targetSdk = 34
     versionCode = 1
     versionName = "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+    buildConfigField("String", "SUPABASE_URL", "\"https://[YOUR_PROJECT_ID].supabase.co\"")
+    buildConfigField("String", "SUPABASE_ANON_KEY", "\"[YOUR_ANON_KEY]\"")
+    buildConfigField("String", "SUPABASE_FUNCTION_URL", "\"https://[YOUR_PROJECT_ID].supabase.co/functions/v1/iotec-collect\"")
+    resValue("string", "app_name", "SaccoManager")
   }
 
   signingConfigs {
@@ -28,12 +33,6 @@ android {
       storePassword = System.getenv("STORE_PASSWORD")
       keyAlias = "upload"
       keyPassword = System.getenv("KEY_PASSWORD")
-    }
-    create("debugConfig") {
-      storeFile = file("${rootDir}/debug.keystore")
-      storePassword = "android"
-      keyAlias = "androiddebugkey"
-      keyPassword = "android"
     }
   }
 
@@ -48,7 +47,6 @@ android {
     debug {
       isMinifyEnabled = false
       isShrinkResources = false
-      signingConfig = signingConfigs.getByName("debugConfig")
     }
   }
   compileOptions {

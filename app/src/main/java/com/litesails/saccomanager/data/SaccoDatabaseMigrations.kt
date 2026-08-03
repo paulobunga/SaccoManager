@@ -47,7 +47,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  *  v7     Auth integration: `password` column removed from sacco_users;
  *         `firebaseUid` column added. Firebase Auth now owned credentials.
  *  v8     Clerk Auth migration: `firebaseUid` column renamed to `clerkUserId`.
- *
+ *  v9     IOTEC integration: added `iotecRequestId`, `iotecStatus`,
+ *         `contributionType` to `savings_payments`.
+ *  v10    Long polling metadata: added `iotecPollingAttempts`,
+ *         `iotecPollingStartedAt`, `iotecPollingCompletedAt`.
  * ══════════════════════════════════════════════════════════════════════════════
  */
 
@@ -138,6 +141,38 @@ val MIGRATION_7_8 = object : Migration(7, 8) {
 }
 
 /**
+ * Migration 8 → 9: IOTEC Integration
+ *
+ * Summary of changes to the `savings_payments` table:
+ *   ADDED: iotecRequestId TEXT NOT NULL DEFAULT ''
+ *   ADDED: iotecStatus TEXT NOT NULL DEFAULT ''
+ *   ADDED: contributionType TEXT NOT NULL DEFAULT 'SAVINGS'
+ */
+val MIGRATION_8_9 = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE savings_payments ADD COLUMN iotecRequestId TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE savings_payments ADD COLUMN iotecStatus TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE savings_payments ADD COLUMN contributionType TEXT NOT NULL DEFAULT 'SAVINGS'")
+    }
+}
+
+/**
+ * Migration 9 → 10: Long Polling Metadata
+ *
+ * Summary of changes to the `savings_payments` table:
+ *   ADDED: iotecPollingAttempts INTEGER NOT NULL DEFAULT 0
+ *   ADDED: iotecPollingStartedAt TEXT
+ *   ADDED: iotecPollingCompletedAt TEXT
+ */
+val MIGRATION_9_10 = object : Migration(9, 10) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE savings_payments ADD COLUMN iotecPollingAttempts INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE savings_payments ADD COLUMN iotecPollingStartedAt TEXT")
+        db.execSQL("ALTER TABLE savings_payments ADD COLUMN iotecPollingCompletedAt TEXT")
+    }
+}
+
+/**
  * Central registry of all migrations.
  *
  * Pass this array to `.addMigrations(*ALL_MIGRATIONS)` in SaccoDatabase.kt:
@@ -151,6 +186,7 @@ val MIGRATION_7_8 = object : Migration(7, 8) {
  */
 val ALL_MIGRATIONS: Array<Migration> = arrayOf(
     MIGRATION_6_7,
-    MIGRATION_7_8
-    // MIGRATION_8_9,  // ← add future migrations here
+    MIGRATION_7_8,
+    MIGRATION_8_9,
+    MIGRATION_9_10
 )

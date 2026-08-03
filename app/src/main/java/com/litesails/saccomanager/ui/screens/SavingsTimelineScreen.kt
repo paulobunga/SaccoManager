@@ -40,6 +40,9 @@ import com.litesails.saccomanager.ui.theme.LemonGreen
 import java.text.NumberFormat
 import java.util.Locale
 
+typealias IotecStatusCallback = (String) -> Unit
+typealias IotecContributionHandler = (Double, Int, Int, String, String, String, String, IotecStatusCallback) -> Unit
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SavingsTimelineScreen(
@@ -51,7 +54,8 @@ fun SavingsTimelineScreen(
     profilesList: List<MemberProfile> = emptyList(),
     allLoans: List<LoanApplication> = emptyList(),
     allExpenses: List<SaccoExpense> = emptyList(),
-    onSubmitPayment: (Double, Int, String, String, String, String, String, String) -> Unit
+    onSubmitPayment: (Double, Int, String, String, String, String, String, String) -> Unit,
+    onIotecContribution: ((Double, Int, Int, String, String, String, String, (String) -> Unit) -> Unit)? = null
 ) {
     val scrollState = rememberScrollState()
     val context = LocalContext.current
@@ -854,6 +858,130 @@ fun SavingsTimelineScreen(
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Text("Submit Deposit Slip")
+                }
+
+                var useIotec by remember { mutableStateOf(false) }
+                var iotecAmountStr by remember { mutableStateOf("") }
+                var iotecPhone by remember { mutableStateOf("") }
+                var iotecStatus by remember { mutableStateOf<String?>(null) }
+                var isSubmittingIotec by remember { mutableStateOf(false) }
+                var iotecType by remember { mutableStateOf("SAVINGS") }
+                var iotecTypeExpanded by remember { mutableStateOf(false) }
+                val iotecTypes = listOf(
+                    "SAVINGS" to "Shares / Savings",
+                    "REGISTRATION" to "Membership & Registration Fee",
+                    "ANNUAL" to "Annual Subscription"
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Pay with Mobile Money", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
+                    Switch(
+                        checked = useIotec,
+                        onCheckedChange = {
+                            useIotec = it
+                            iotecStatus = null
+                        }
+                    )
+                }
+
+                if (useIotec) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    ExposedDropdownMenuBox(
+                        expanded = iotecTypeExpanded,
+                        onExpandedChange = { iotecTypeExpanded = !iotecTypeExpanded }
+                    ) {
+                        OutlinedTextField(
+                            value = iotecTypes.firstOrNull { it.first == iotecType }?.second ?: "Shares / Savings",
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Contribution Type") },
+                            trailingIcon = { Icon(Icons.Default.ArrowDropDown, contentDescription = null) },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        ExposedDropdownMenu(
+                            expanded = iotecTypeExpanded,
+                            onDismissRequest = { iotecTypeExpanded = false }
+                        ) {
+                            iotecTypes.forEach { (key, label) ->
+                                DropdownMenuItem(
+                                    text = { Text(label) },
+                                    onClick = {
+                                        iotecType = key
+                                        iotecTypeExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = iotecPhone,
+                        onValueChange = { iotecPhone = it },
+                        textStyle = MaterialTheme.typography.bodySmall,
+                        singleLine = true,
+                        label = { Text("Mobile Money Number") },
+                        modifier = Modifier.fillMaxWidth().testTag("iotec_phone_input")
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = iotecAmountStr,
+                        onValueChange = { iotecAmountStr = it.filter { char -> char.isDigit() } },
+                        textStyle = MaterialTheme.typography.bodySmall,
+                        singleLine = true,
+                        label = { Text("Amount (UGX)") },
+                        modifier = Modifier.fillMaxWidth().testTag("iotec_amount_input")
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(
+                        onClick = {
+                            val amt = iotecAmountStr.toDoubleOrNull()
+                            val phone = iotecPhone.trim()
+                            if (amt == null || amt <= 0.0) {
+                                iotecStatus = "Enter a valid amount."
+                            } else if (phone.isEmpty() || phone.length < 10) {
+                                iotecStatus = "Enter a valid mobile money number."
+                            } else if (onIotecContribution == null) {
+                                iotecStatus = "Mobile money payments are not configured."
+                            } else {
+                                isSubmittingIotec = true
+                                iotecStatus = null
+                                onIotecContribution.invoke(amt, paymentMonthIndex, sysCurrentYear, phone, memberId, memberName, iotecType) { status ->
+                                    isSubmittingIotec = false
+                                    iotecStatus = status
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp)
+                            .testTag("submit_iotec_contribution"),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        if (isSubmittingIotec) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Processing...")
+                        } else {
+                            Icon(Icons.Default.Payment, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Pay with Iotec")
+                        }
+                    }
+
+                    if (iotecStatus != null) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = iotecStatus ?: "",
+                            color = if ((iotecStatus ?: "").contains("success", true) || (iotecStatus ?: "").contains("request", true)) Color(0xFF16A34A) else MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
                 }
             }
         }

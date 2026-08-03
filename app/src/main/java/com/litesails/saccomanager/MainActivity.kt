@@ -22,7 +22,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.room.Room
 import com.litesails.saccomanager.data.*
-import com.litesails.saccomanager.network.ClerkAuthManager
+import com.litesails.saccomanager.network.SupabaseAuthManager
 import com.litesails.saccomanager.network.GeminiApiClient
 import com.litesails.saccomanager.ui.screens.*
 import com.litesails.saccomanager.ui.theme.MyApplicationTheme
@@ -81,18 +81,33 @@ fun MainContent(repository: SaccoRepository) {
 
     // -------------------------------------------------------------------------
     // Startup: restore Clerk session without re-login (REQ-4)
-    // -------------------------------------------------------------------------
+    // Startup: restore Supabase-backed session without re-login
     LaunchedEffect(Unit) {
-        if (ClerkAuthManager.isLoggedIn()) {
-            val clerkUid = ClerkAuthManager.currentUser?.uid
-            if (clerkUid != null) {
-                val user = withContext(Dispatchers.IO) {
-                    repository.getUserByClerkUserId(clerkUid)
-                }
-                if (user != null) {
-                    loggedInUser = user
-                    activeRole = user.role
-                    currentScreenRoute = if (user.role == UserRole.ADMIN || user.role == UserRole.SUPER_ADMIN) "ADMIN_PANEL" else "DASHBOARD"
+        if (SupabaseAuthManager.isLoggedIn) {
+            val storedUserId = SupabaseAuthManager.userId
+            val storedRole = SupabaseAuthManager.role
+            val storedMembership = SupabaseAuthManager.membershipNumber
+            if (storedUserId != null) {
+                val localUser = withContext(Dispatchers.IO) { repository.getUserById(storedUserId) }
+                if (localUser != null) {
+                    loggedInUser = localUser.copy(membershipNumber = storedMembership ?: localUser.membershipNumber)
+                    activeRole = localUser.role
+                    currentScreenRoute = if (localUser.role == UserRole.ADMIN || localUser.role == UserRole.SUPER_ADMIN) "ADMIN_PANEL" else "DASHBOARD"
+                } else {
+                    val restored = SaccoUser(
+                        id = storedUserId,
+                        email = SupabaseAuthManager.email ?: storedUserId,
+                        phone = "",
+                        name = SupabaseAuthManager.name ?: "User",
+                        role = UserRole.valueOf(storedRole ?: UserRole.MEMBER.name),
+                        status = MemberStatus.ACTIVE,
+                        membershipNumber = storedMembership ?: "",
+                        clerkUserId = storedUserId
+                    )
+                    withContext(Dispatchers.IO) { repository.updateUser(restored) }
+                    loggedInUser = restored
+                    activeRole = restored.role
+                    currentScreenRoute = if (restored.role == UserRole.ADMIN || restored.role == UserRole.SUPER_ADMIN) "ADMIN_PANEL" else "DASHBOARD"
                 }
             }
         }
@@ -162,63 +177,77 @@ fun MainContent(repository: SaccoRepository) {
 
     // Handlers for authentication success
     val onLoginSuccess: suspend (String, String, UserRole) -> Pair<Boolean, String> = { username, password, role ->
-        // Step 1: Authenticate via Clerk (REQ-4)
-        val clerkResult = ClerkAuthManager.login(username, password)
-        if (clerkResult.isFailure) {
-            Pair(false, clerkResult.exceptionOrNull()?.message ?: "Authentication failed. Please try again.")
+        // Step 1: Authenticate via Supabase-backed auth flow using Clerk Third Party Auth
+        val authResult = SupabaseAuthManager.signIn(username, password)
+        if (authResult.isFailure) {
+            Pair(false, authResult.exceptionOrNull()?.message ?: "Authentication failed. Please try again.")
         } else {
-            // Step 2: Clerk auth succeeded — look up local Room record for role/profile validation
-            val clerkUser = clerkResult.getOrNull()
-            val user = withContext(Dispatchers.IO) { repository.getUserById(username) }
-            if (user != null) {
-                if (user.role == role) {
-                    // Step 3: Store the Clerk user ID on the local record if not already set (REQ-4)
-                    if (clerkUser != null && user.clerkUserId != clerkUser.uid) {
-                        withContext(Dispatchers.IO) {
-                            repository.updateUser(user.copy(clerkUserId = clerkUser.uid))
-                        }
-                        loggedInUser = user.copy(clerkUserId = clerkUser.uid)
-                    } else {
-                        loggedInUser = user
-                    }
-                    activeRole = role
-                    currentScreenRoute = if (role == UserRole.ADMIN || role == UserRole.SUPER_ADMIN) "ADMIN_PANEL" else "DASHBOARD"
-                    repository.logAudit(user.name, role.name, "LOGIN_SUCCESS", "Successfully signed into SACCO Manager.")
+            // Step 2: Auth succeeded — look up local Room record for role/profile validation
+            val authUser = authResult.getOrNull()
+            val localUserId = authUser?.get("id") as? String ?: username
+            val localUser = withContext(Dispatchers.IO) { repository.getUserById(localUserId) }
+            if (localUser != null) {
+                if (localUser.role == role) {
+                    val storedRole = authUser?.get("role") as? String ?: localUser.role.name
+                    val membershipNumber = authUser?.get("membershipNumber") as? String ?: localUser.membershipNumber
+                    loggedInUser = localUser.copy(clerkUserId = localUserId, membershipNumber = membershipNumber)
+                    activeRole = localUser.role
+                    currentScreenRoute = if (localUser.role == UserRole.ADMIN || localUser.role == UserRole.SUPER_ADMIN) "ADMIN_PANEL" else "DASHBOARD"
+                    repository.logAudit(localUser.name, storedRole, "LOGIN_SUCCESS", "Successfully signed into SACCO Manager.")
                     Pair(true, "Login Successful")
                 } else {
-                    // Clerk auth passed but the selected role doesn't match the registered role
-                    ClerkAuthManager.logout()
-                    Pair(false, "Role mismatch: User is registered as a ${user.role.name}.")
+                    SupabaseAuthManager.logout()
+                    Pair(false, "Role mismatch: User is registered as a ${localUser.role.name}.")
                 }
             } else {
-                // Clerk account exists but no matching local Room record
-                // This can happen after a DB wipe; still allow login and restore from Clerk UID
-                val userByUid = if (clerkUser != null) {
-                    withContext(Dispatchers.IO) { repository.getUserByClerkUserId(clerkUser.uid) }
-                } else null
-                if (userByUid != null) {
-                    if (userByUid.role == role) {
-                        loggedInUser = userByUid
-                        activeRole = role
-                        currentScreenRoute = if (role == UserRole.ADMIN || role == UserRole.SUPER_ADMIN) "ADMIN_PANEL" else "DASHBOARD"
-                        repository.logAudit(userByUid.name, role.name, "LOGIN_SUCCESS", "Session restored via Clerk UID.")
-                        Pair(true, "Login Successful")
-                    } else {
-                        ClerkAuthManager.logout()
-                        Pair(false, "Role mismatch: User is registered as a ${userByUid.role.name}.")
-                    }
-                } else {
-                    ClerkAuthManager.logout()
-                    Pair(false, "User account not found locally. Please contact your SACCO administrator.")
-                }
+                // Auth account exists but no matching local Room record
+                val membershipNumber = authUser?.get("membershipNumber") as? String
+                val newLocal = SaccoUser(
+                    id = localUserId,
+                    email = localUserId,
+                    phone = "",
+                    name = (authUser?.get("name") as? String) ?: username,
+                    role = UserRole.valueOf(storedRole ?: role.name),
+                    status = MemberStatus.ACTIVE,
+                    membershipNumber = membershipNumber ?: "",
+                    clerkUserId = localUserId
+                )
+                withContext(Dispatchers.IO) { repository.updateUser(newLocal) }
+                loggedInUser = newLocal
+                activeRole = newLocal.role
+                currentScreenRoute = if (newLocal.role == UserRole.ADMIN || newLocal.role == UserRole.SUPER_ADMIN) "ADMIN_PANEL" else "DASHBOARD"
+                repository.logAudit(newLocal.name, newLocal.role.name, "LOGIN_SUCCESS", "Session restored via Supabase-backed auth.")
+                Pair(true, "Login Successful")
             }
         }
     }
 
     val onRegisterSubmit: (SaccoUser, MemberProfile, String) -> Unit = { user, profile, password ->
         scope.launch {
-            repository.registerUser(user, profile, password)
-            showRegisterForm = false
+            try {
+                val authResult = SupabaseAuthManager.signUp(
+                    email = user.email,
+                    password = password,
+                    fullName = user.name,
+                    phone = user.phone,
+                    role = user.role.name
+                )
+                if (authResult.isSuccess) {
+                    val created = authResult.getOrNull() ?: emptyMap()
+                    val clerkId = created["id"] as? String ?: user.id
+                    val newUser = user.copy(id = clerkId, clerkUserId = clerkId)
+                    repository.registerUser(newUser, profile.copy(memberId = clerkId), password)
+                    loggedInUser = newUser
+                    activeRole = user.role
+                    currentScreenRoute = "DASHBOARD"
+                } else {
+                    Toast.makeText(context, authResult.exceptionOrNull()?.message ?: "Registration failed", Toast.LENGTH_LONG).show()
+                }
+            } catch (t: Throwable) {
+                Toast.makeText(context, t.message ?: "Registration failed", Toast.LENGTH_LONG).show()
+            } finally {
+                showRegisterForm = false
+            }
         }
     }
 
@@ -253,8 +282,10 @@ fun MainContent(repository: SaccoRepository) {
                 onLoginSuccess = onLoginSuccess,
                 onNavigateToRegister = { showRegisterForm = true },
                 onResetPassword = { username, _ ->
-                    repository.resetPassword(username)
-                }
+                    scope.launch {
+                        SupabaseAuthManager.sendPasswordReset(username)
+                    }
+                },
             )
         }
     } else {
@@ -325,6 +356,12 @@ fun MainContent(repository: SaccoRepository) {
                                 icon = { Icon(Icons.Default.Assessment, contentDescription = null) },
                                 label = { Text("Reports", fontSize = 10.sp) }
                             )
+                            NavigationBarItem(
+                                selected = currentScreenRoute == "NOTIFICATIONS",
+                                onClick = { currentScreenRoute = "NOTIFICATIONS" },
+                                icon = { Icon(Icons.Default.Notifications, contentDescription = null) },
+                                label = { Text("Alerts", fontSize = 10.sp) }
+                            )
                         } else {
                             // Admin / Super Admin navigation icons
                             NavigationBarItem(
@@ -344,6 +381,12 @@ fun MainContent(repository: SaccoRepository) {
                                 onClick = { currentScreenRoute = "REPORTS" },
                                 icon = { Icon(Icons.Default.Assessment, contentDescription = null) },
                                 label = { Text("Reports", fontSize = 10.sp) }
+                            )
+                            NavigationBarItem(
+                                selected = currentScreenRoute == "NOTIFICATIONS",
+                                onClick = { currentScreenRoute = "NOTIFICATIONS" },
+                                icon = { Icon(Icons.Default.Notifications, contentDescription = null) },
+                                label = { Text("Alerts", fontSize = 10.sp) }
                             )
                         }
                     }
@@ -451,8 +494,10 @@ fun MainContent(repository: SaccoRepository) {
                                 repository.updateProfileAndName(loggedInUser!!.id, newName, updatedProfile, loggedInUser!!.name, activeRole.name)
                             }
                         },
-                        onResetPassword = { mId, _ ->
-                            repository.resetPassword(mId)
+                        onResetPassword = { username, _ ->
+                            scope.launch {
+                                SupabaseAuthManager.sendPasswordReset(username)
+                            }
                         },
                         isOnline = isOnline,
                         isSyncing = isSyncing
@@ -482,6 +527,35 @@ fun MainContent(repository: SaccoRepository) {
                                     notes = notes,
                                     receiptImageUrl = receiptImg
                                 )
+                            }
+                        },
+                        onIotecContribution = { amt, month, year, phone, mId, mName, cType, statusCb ->
+                            scope.launch {
+                                try {
+                                    val functionUrl = BuildConfig.SUPABASE_FUNCTION_URL
+                                    if (functionUrl.isBlank()) {
+                                        statusCb("IOTEC endpoint is not configured.")
+                                        return@launch
+                                    }
+                                    val payload = org.json.JSONObject()
+                                        .put("memberId", mId)
+                                        .put("memberName", mName)
+                                        .put("amount", amt)
+                                        .put("phoneNumber", phone)
+                                        .put("cycleMonthIndex", month)
+                                        .put("cycleYear", year)
+                                        .put("contributionType", cType)
+                                        .toString()
+                                    val raw = com.litesails.saccomanager.network.SaccoNetworkClient.postJson(functionUrl, payload)
+                                    val json = org.json.JSONObject(raw)
+                                    if (json.optBoolean("success", false)) {
+                                        statusCb("Payment request sent successfully (${json.optString("status")}).")
+                                    } else {
+                                        statusCb(json.optString("message", "Payment request failed."))
+                                    }
+                                } catch (e: Exception) {
+                                    statusCb("Error: ${e.message}")
+                                }
                             }
                         }
                     )
@@ -600,6 +674,17 @@ fun MainContent(repository: SaccoRepository) {
                         allUsers = allUsers,
                         loggedInUserId = loggedInUser?.id ?: "",
                         activeRole = activeRole
+                    )
+
+                    "NOTIFICATIONS" -> NotificationInboxScreen(
+                        notifications = notificationsList,
+                        onBack = { currentScreenRoute = "DASHBOARD" },
+                        onMarkRead = { recipientId ->
+                            scope.launch {
+                                repository.markNotificationsRead(recipientId)
+                            }
+                        },
+                        onNavigate = { route -> currentScreenRoute = route }
                     )
 
                     "AI_COACH" -> AiCoachScreen(

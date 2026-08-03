@@ -398,11 +398,11 @@ fun RegistrationScreen(
                                 name = fullName,
                                 role = UserRole.MEMBER,
                                 status = MemberStatus.PENDING,
-                                membershipNumber = "SACCO-PEND-${System.currentTimeMillis().toString().takeLast(4)}"
+                                membershipNumber = ""
                             )
                             val profile = MemberProfile(
                                 memberId = email,
-                                membershipNumber = user.membershipNumber,
+                                membershipNumber = "",
                                 nationalId = nationalId,
                                 fullName = fullName,
                                 gender = gender,
@@ -415,11 +415,11 @@ fun RegistrationScreen(
                                 emergencyContact = emergencyContact.ifEmpty { "Not Provided" },
                                 bankAccount = bankAccount.ifEmpty { "Not Provided" },
                                 mobileMoneyNumber = mobileMoneyNumber.ifEmpty { phone },
-                                dateJoined = "2026-06-26",
+                                dateJoined = getCurrentDateString(),
                                 status = MemberStatus.PENDING,
                                 nextOfKin = nextOfKin.ifEmpty { "Not Provided" },
-                                profilePhotoUrl = "mock_photo_uri",
-                                signatureUrl = "mock_sig_uri",
+                                profilePhotoUrl = "",
+                                signatureUrl = "",
                                 referredByCode = referralCode
                             )
                             onRegisterSubmit(user, profile, password)

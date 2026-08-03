@@ -72,4 +72,18 @@ object SaccoNetworkClient {
         .certificatePinner(certificatePinner)
         .addInterceptor(rateLimitInterceptor)
         .build()
+
+    suspend fun postJson(url: String, json: String): String = withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val request = Request.Builder()
+            .url(url)
+            .post(json.toRequestBody("application/json; charset=utf-8".toMediaType()))
+            .build()
+
+        okHttpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw IOException("HTTP ${response.code} ${response.message}")
+            }
+            response.body?.string() ?: ""
+        }
+    }
 }

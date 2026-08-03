@@ -96,6 +96,22 @@ interface SavingsPaymentDao {
 
     @Query("UPDATE savings_payments SET status = :status, verifiedBy = :verifiedBy WHERE id = :id")
     suspend fun verifyPayment(id: Int, status: VerificationStatus, verifiedBy: String)
+
+    @Query("""
+        UPDATE savings_payments 
+        SET iotecStatus = :iotecStatus,
+            iotecPollingAttempts = :iotecPollingAttempts,
+            iotecPollingCompletedAt = :iotecPollingCompletedAt,
+            status = :status
+        WHERE id = :id
+    """)
+    suspend fun updatePayment(
+        id: Int,
+        iotecStatus: String,
+        iotecPollingAttempts: Int,
+        iotecPollingCompletedAt: String?,
+        status: VerificationStatus
+    )
 }
 
 @Dao
@@ -269,7 +285,7 @@ interface DividendAuditRecordDao {
         DeclaredDividend::class,
         DividendAuditRecord::class
     ],
-    version = 8,
+    version = 10,
     exportSchema = false
 )
 @TypeConverters(SaccoConverters::class)
