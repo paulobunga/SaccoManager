@@ -1,4 +1,4 @@
-name: Build Debug APK
+name: Build APK
 
 on:
   push:
@@ -6,6 +6,15 @@ on:
   pull_request:
     branches: [ master, main ]
   workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type'
+        required: true
+        default: 'debug'
+        type: choice
+        options:
+          - debug
+          - release
 
 jobs:
   build:
@@ -36,17 +45,24 @@ jobs:
           key: gradle-${{ hashFiles('**/*.gradle.kts', '**/libs.versions.toml') }}
           restore-keys: gradle-
 
-      - name: Generate debug keystore
+      - name: Prepare signing material
         run: |
-          keytool -genkeypair -v \
-            -keystore debug.keystore \
-            -storepass android \
-            -alias androiddebugkey \
-            -keypass android \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -dname "CN=Android Debug,O=Android,C=US"
+          if [[ "${{ github.event.inputs.build_type || 'debug' }}" == "debug" ]]; then
+            keytool -genkeypair -v \
+              -keystore debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          else
+            echo "${{ secrets.KEYSTORE_PATH }}" > keystore_path.txt
+            echo "${{ secrets.KEYSTORE_PASSWORD }}" > keystore_password.txt
+            echo "${{ secrets.KEY_ALIAS }}" > key_alias.txt
+            echo "${{ secrets.KEY_PASSWORD }}" > key_password.txt
+          fi
 
       - name: Create .env file
         run: echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" > .env
@@ -54,19 +70,31 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x gradlew
 
-      - name: Build debug APK
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+      - name: Build APK
+        run: |
+          if [[ "${{ github.event.inputs.build_type || 'debug' }}" == "debug" ]]; then
+            ./gradlew assembleDebug --no-daemon --stacktrace
+          else
+            ./gradlew assembleRelease --no-daemon --stacktrace
+          fi
 
       - name: Generate APK SHA256 checksum
         run: |
-          sha256sum app/build/outputs/apk/debug/app-debug.apk > app-debug.apk.sha256
-          cat app-debug.apk.sha256
+          if [[ "${{ github.event.inputs.build_type || 'debug' }}" == "debug" ]]; then
+            sha256sum app/build/outputs/apk/debug/app-debug.apk > app-debug.apk.sha256
+            cat app-debug.apk.sha256
+          else
+            sha256sum app/build/outputs/apk/release/app-release-unsigned.apk > app-release-unsigned.apk.sha256
+            cat app-release-unsigned.apk.sha256
+          fi
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: sacco-debug-apk
+          name: sacco-${{ github.event.inputs.build_type || 'debug' }}-apk
           path: |
             app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/release/app-release-unsigned.apk
             app-debug.apk.sha256
+            app-release-unsigned.apk.sha256
           retention-days: 7

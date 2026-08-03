@@ -55,11 +55,6 @@ class MainActivity : ComponentActivity() {
 
         repository = SaccoRepository(applicationContext, database)
 
-        // 2. Pre-seed Test Data on Startup (async coroutine)
-        lifecycleScope.launch {
-            repository.seedTestData()
-        }
-
         setContent {
             MyApplicationTheme {
                 MainContent(repository)

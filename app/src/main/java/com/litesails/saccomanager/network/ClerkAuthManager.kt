@@ -15,19 +15,17 @@ data class ClerkUser(
 )
 
 /**
- * Auth manager backed by Clerk Android SDK.
+ * Auth manager backed by Clerk.
  *
  * Token sharing with Supabase:
  *   1. Clerk issues a JWT using a custom "supabase" JWT template configured
- *      in the Clerk Dashboard (Settings → JWT Templates → New template → Supabase).
- *   2. [getSupabaseToken] fetches this short-lived token.
- *   3. Pass it as the Authorization: Bearer header on every Supabase REST call.
- *      Supabase trusts Clerk tokens once the Clerk JWKS URL is configured in
- *      the Supabase project: Authentication → JWT Settings → JWKS URL =
- *      https://clerk.your-domain.com/.well-known/jwks.json
+ *      in the Clerk Dashboard.
+ *   2. [getSupabaseToken] returns the current session token when available.
+ *   3. Pass it as `Authorization: Bearer <token>` on Supabase REST calls
+ *      so Supabase Row Level Security can verify the caller's identity.
  *
  * Setup:
- *   - Add CLERK_PUBLISHABLE_KEY to .env (and .env.example).
+ *   - Add CLERK_PUBLISHABLE_KEY to .env
  *   - Call [initialize] once from Application or MainActivity.onCreate().
  */
 object ClerkAuthManager {
@@ -66,8 +64,6 @@ object ClerkAuthManager {
         } else {
             statusMessage = "No active session"
         }
-
-            // Clerk SDK not yet wired — session restore from prefs is sufficient
     }
 
     // -------------------------------------------------------------------------
@@ -75,25 +71,32 @@ object ClerkAuthManager {
     // -------------------------------------------------------------------------
 
     /**
-     * Register a new user with Clerk email/password sign-up.
+     * Register a new user via Clerk.
+     *
+     * IMPORTANT: This requires the real Clerk SDK/backend to be configured.
+     * This method no longer uses local sandbox stubs.
      */
     suspend fun register(email: String, password: String): Result<ClerkUser> = withContext(Dispatchers.IO) {
-        sandboxRegister(email)
+        Result.failure(IllegalStateException("Clerk registration is not configured in this build."))
     }
 
     /**
-     * Sign in an existing user with Clerk email/password.
+     * Sign in an existing user via Clerk.
+     *
+     * IMPORTANT: This requires the real Clerk SDK/backend to be configured.
+     * This method no longer uses local sandbox stubs.
      */
     suspend fun login(email: String, password: String): Result<ClerkUser> = withContext(Dispatchers.IO) {
-        sandboxLogin(email)
+        Result.failure(IllegalStateException("Clerk sign-in is not configured in this build."))
     }
 
     /**
      * Send a password reset email via Clerk.
+     *
+     * IMPORTANT: This requires the real Clerk SDK/backend to be configured.
      */
     suspend fun sendPasswordReset(email: String): Result<Unit> = withContext(Dispatchers.IO) {
-        Log.i(TAG, "[Stub] Mock password reset for $email")
-        Result.success(Unit)
+        Result.failure(IllegalStateException("Clerk password reset is not configured in this build."))
     }
 
     /**
@@ -101,7 +104,7 @@ object ClerkAuthManager {
      * Attach this as `Authorization: Bearer <token>` on all Supabase REST requests
      * so Supabase Row Level Security can verify the caller's identity.
      *
-     * Returns null if not signed in or if the SDK is not configured.
+     * Returns null if not signed in or if the integration is not configured.
      */
     suspend fun getSupabaseToken(): String? = null
 
@@ -128,22 +131,5 @@ object ClerkAuthManager {
             putString(KEY_EMAIL, user.email)
             apply()
         }
-    }
-
-    // Sandbox fallbacks when Clerk is not yet configured
-    private fun sandboxRegister(email: String): Result<ClerkUser> {
-        val user = ClerkUser("sandbox-${email.hashCode()}", email)
-        saveSession(user)
-        statusMessage = "Sandbox Registered"
-        Log.i(TAG, "[Sandbox] Mock Clerk registration for $email")
-        return Result.success(user)
-    }
-
-    private fun sandboxLogin(email: String): Result<ClerkUser> {
-        val user = ClerkUser("sandbox-${email.hashCode()}", email)
-        saveSession(user)
-        statusMessage = "Sandbox Authenticated"
-        Log.i(TAG, "[Sandbox] Mock Clerk login for $email")
-        return Result.success(user)
     }
 }

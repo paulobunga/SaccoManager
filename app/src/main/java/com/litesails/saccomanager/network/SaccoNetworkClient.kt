@@ -22,13 +22,14 @@ object SaccoNetworkClient {
     private const val TAG = "SaccoNetworkClient"
     private const val API_HOST = "api.sacco.org"
 
-    // Certificate Pinner to prevent Man-In-The-Middle (MITM) attacks
+    // Certificate Pinner to prevent Man-In-The-Middle (MITM) attacks.
+    // Replace these pins with your actual production certificate pins.
     private val certificatePinner = CertificatePinner.Builder()
-        .add(API_HOST, "sha256/k2v657xswOOn91SJFbAr69/Yq8VETli977BGrR46sk0=") // Primary pin
-        .add(API_HOST, "sha256/hS5jJ4P+iYfnH86yD FJtklSg2V964gW9 YmRThM5S+M=") // Backup pin
+        .add(API_HOST, "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=") // Primary pin
+        .add(API_HOST, "sha256/BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=") // Backup pin
         .build()
 
-    // Enforce TLS 1.3 Spec and disable weaker TLS versions
+    // Enforce modern TLS and disable weaker TLS versions
     private val modernTlsSpec = ConnectionSpec.Builder(ConnectionSpec.MODERN_TLS)
         .tlsVersions(okhttp3.TlsVersion.TLS_1_3)
         .build()

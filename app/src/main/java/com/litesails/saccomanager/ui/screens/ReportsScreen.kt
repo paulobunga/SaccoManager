@@ -136,7 +136,7 @@ fun ReportsScreen(
     fun exportExcel() {
         try {
             val csvContent = generateCSV(selectedReportType)
-            val fileName = "${selectedReportType.replace(" ", "_")}_Report.xls"
+            val fileName = "${selectedReportType.replace(" ", "_")}_Report.csv"
             val file = File(context.cacheDir, fileName)
             file.writeText(csvContent)
 
@@ -147,16 +147,16 @@ fun ReportsScreen(
             )
 
             val intent = Intent(Intent.ACTION_SEND).apply {
-                type = "application/vnd.ms-excel"
+                type = "text/csv"
                 putExtra(Intent.EXTRA_STREAM, uri)
                 putExtra(Intent.EXTRA_SUBJECT, "$selectedReportType Report - SACCO Manager")
-                putExtra(Intent.EXTRA_TEXT, "Attached is the Excel XLS export for the $selectedReportType report.")
+                putExtra(Intent.EXTRA_TEXT, "Attached is the CSV export for the $selectedReportType report.")
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            context.startActivity(Intent.createChooser(intent, "Share Excel Report"))
-            toastMessage = "Excel sheet generated and shared successfully!"
+            context.startActivity(Intent.createChooser(intent, "Share CSV Report"))
+            toastMessage = "CSV file generated and shared successfully!"
         } catch (e: Exception) {
-            toastMessage = "Error generating Excel: ${e.localizedMessage}"
+            toastMessage = "Error generating CSV: ${e.localizedMessage}"
         }
     }
 

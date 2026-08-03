@@ -1,21 +1,37 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# Project-specific ProGuard/R8 rules for SACCO Manager
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# Keep entry points and Application class
+-keep public class com.litesails.saccomanager.SaccoApp { *; }
+-keep public class com.litesails.saccomanager.MainActivity { *; }
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Room
+-keep class androidx.room.** { *; }
+-keep @androidx.room.Entity class *
+-keep @androidx.room.Dao class *
+-keep class **$* { *; }
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# Retrofit + Moshi
+-keep class com.squareup.retrofit2.** { *; }
+-keep class com.squareup.moshi.** { *; }
+-keep @com.squareup.moshi.JsonQualifier interface *
+-keepclassmembers class ** {
+    @com.squareup.moshi.Json <fields>;
+}
+-keepclassmembers class * {
+    @com.squareup.moshi.Json <methods>;
+}
+
+# OkHttp
+-dontwarn okhttp3.**
+-dontwarn okio.**
+
+# Clerk
+-keep class com.clerk.** { *; }
+
+# Compose
+-keep class androidx.compose.** { *; }
+-keep class kotlin.Metadata { *; }
+
+# General
+-keepattributes Signature
+-keepattributes *Annotation*
